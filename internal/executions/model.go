@@ -30,7 +30,7 @@ type Execution struct {
 	UpdatedAt time.Time
 }
 
-// SupportedLanguages is the scaffold allowlist; runner images arrive in Phase 1+.
+// SupportedLanguages is the scaffold allowlist; runner images arrive deferred: k8s-jobs.
 var SupportedLanguages = []string{"python", "c", "java"}
 
 // ValidLanguage reports whether lang is supported.

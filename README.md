@@ -27,9 +27,9 @@ Env: `PORT=4000 ENV=development DATABASE_URL=... NATS_URL=... JWT_SECRET=...`
 ## Layout
 
 `cmd/gateway`, `cmd/dispatcher`, `internal/{config,http,auth,tenants,executions,nats,store,webhooks}`,
-`api/openapi.yaml`, `docs/api-parity.md`, `deploy/compose.yaml`, `charts/` (Phase 2).
+`api/openapi.yaml`, `docs/api-parity.md`, `deploy/compose.yaml`, `charts/` (deferred: helm).
 
 ## Status
 
 Scaffold only: routes return `501`, dispatcher idles, Helm/RuntimeClass/Job execution deferred.
-Next: Phase 1 Gateway MVP (real auth + Postgres + NATS publish).
+Next: gateway MVP (deferred: auth-plus-postgres, nats-publish).

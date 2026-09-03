@@ -1,5 +1,5 @@
 // Package webhooks holds webhook helpers.
-// Scaffold: SSRF guard port from legacy src/utils/urlSafety.ts lands in Phase 1.
+// Scaffold: SSRF guard port from legacy src/utils/urlSafety.ts (deferred: ssrf-guard).
 // This stub documents the contract so gateway handlers can reference it.
 package webhooks
 
@@ -10,7 +10,7 @@ import (
 )
 
 // ValidateCallbackURL enforces the scaffold contract: http(s) only.
-// Phase 1 adds private/loopback/link-local/metadata blocking (see docs/api-parity.md).
+// Private/loopback/link-local/metadata blocking is deferred: ssrf-guard (see docs/api-parity.md).
 func ValidateCallbackURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {

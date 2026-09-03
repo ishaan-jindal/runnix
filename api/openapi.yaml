@@ -23,15 +23,15 @@ paths:
       responses: { '200': { description: ok } }
   /v1/auth/register:
     post:
-      summary: Register (Phase 1)
+      summary: "Register (deferred: auth-plus-postgres)"
       responses: { '501': { description: scaffold } }
   /v1/auth/login:
     post:
-      summary: Login (Phase 1)
+      summary: "Login (deferred: auth-plus-postgres)"
       responses: { '501': { description: scaffold } }
   /v1/auth/refresh:
     post:
-      summary: Refresh (Phase 1)
+      summary: "Refresh (deferred: auth-plus-postgres)"
       responses: { '501': { description: scaffold } }
   /v1/tenants:
     post:

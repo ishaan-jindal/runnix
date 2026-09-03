@@ -1,5 +1,5 @@
 // Package auth provides JWT, API-key, and password helpers.
-// Scaffold: interfaces + stateless helpers only. Postgres persistence lands in Phase 1.
+// Scaffold: interfaces + stateless helpers only. Postgres persistence (deferred: auth-plus-postgres).
 package auth
 
 import (

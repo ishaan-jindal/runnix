@@ -13,7 +13,7 @@ func Health(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "service": "runnix-gateway"})
 }
 
-// Ready returns readiness. Phase 1: ping Postgres + NATS; scaffold: static ok.
+// Ready returns readiness. Scaffold: static ok; live Postgres + NATS checks deferred: gateway-mvp.
 func Ready(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready"})

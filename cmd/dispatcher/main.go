@@ -1,6 +1,6 @@
 // Command dispatcher subscribes to JetStream and creates K8s Jobs.
 // Scaffold: validates NATS connectivity when NATS_URL is set, then idles.
-// Real Job-per-execution logic lands in Phase 2 (K8s).
+// Real Job-per-execution logic deferred: k8s-jobs.
 package main
 
 import (
@@ -29,7 +29,7 @@ func main() {
 		}
 	}
 
-	log.Print("dispatcher stub running (Job creation deferred to Phase 2). Press Ctrl-C to exit.")
+	log.Print("dispatcher stub running (Job creation deferred: k8s-jobs). Press Ctrl-C to exit.")
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop

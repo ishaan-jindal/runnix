@@ -19,7 +19,7 @@ const (
 )
 
 // MembershipChecker reports whether user belongs to tenant and with which role.
-// Postgres implementation lands in Phase 1; scaffold uses an in-memory stub in tests.
+// Postgres implementation deferred: auth-plus-postgres; scaffold uses an in-memory stub in tests.
 type MembershipChecker func(userID, tenantID string) (role string, ok bool)
 
 // UserIDFrom returns the authenticated user id from context.

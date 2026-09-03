@@ -1,5 +1,5 @@
 // Package nats defines JetStream subject conventions and a stub client.
-// Real publish/subscribe lands in Phase 1 (Gateway MVP); the dispatcher
+// Real publish/subscribe is deferred: nats-publish; the dispatcher
 // consumer groups per language are documented here so both sides agree.
 package nats
 
@@ -25,7 +25,7 @@ func SubjectForResult(executionID string) string {
 	return fmt.Sprintf("exec.result.%s", executionID)
 }
 
-// Client is a thin wrapper reserved for Phase 1 publish/subscribe logic.
+// Client is a thin wrapper reserved for publish/subscribe logic (deferred: nats-publish).
 type Client struct {
 	Conn *natsgo.Conn
 }

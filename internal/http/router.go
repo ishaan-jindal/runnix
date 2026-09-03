@@ -19,7 +19,7 @@ type RouterConfig struct {
 }
 
 // NewRouter builds the chi router with the tenant-first v1 surface.
-// Full handlers land in Phase 1; scaffold returns 501 with the route shape.
+// Full handlers are deferred: gateway-mvp; scaffold returns 501 with the route shape.
 func NewRouter(cfg RouterConfig) http.Handler {
 	r := chi.NewRouter()
 	r.Use(chimw.Recoverer)
@@ -34,7 +34,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			writeJSON(w, http.StatusOK, map[string]any{"languages": executions.SupportedLanguages})
 		})
 
-		// Everything below is tenant-scoped in Phase 1. Scaffold: auth enforced
+		// Everything below is tenant-scoped (deferred: gateway-mvp). Scaffold: auth enforced
 		// when JWTSecret is set, handlers stubbed 501.
 		r.Group(func(r chi.Router) {
 			if cfg.JWTSecret != "" {
@@ -51,7 +51,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Get("/tenants/{id}", stub("get tenant"))
 		})
 
-		// Auth endpoints: real logic in Phase 1.
+		// Auth endpoints: real logic deferred: auth-plus-postgres.
 		r.Post("/auth/register", stub("register"))
 		r.Post("/auth/login", stub("login"))
 		r.Post("/auth/refresh", stub("refresh"))
