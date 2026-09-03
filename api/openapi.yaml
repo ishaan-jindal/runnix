@@ -1,9 +1,9 @@
 openapi: 3.0.3
 info:
-  title: Runnix v2 (tenant-first)
+  title: Runnix
   version: 0.0.1-scaffold
   description: >
-    Scaffold surface. All /v1/executions and /v1/tenants/* routes require
+    Runnix API. All executions and tenants routes require
     Authorization: Bearer <jwt> AND X-Tenant-ID. 401 = bad token,
     400 = missing tenant, 403 = not a member.
 servers:
@@ -17,35 +17,72 @@ paths:
     get:
       summary: Readiness
       responses: { '200': { description: ready } }
-  /v1/languages:
+  /languages:
     get:
       summary: Supported languages
       responses: { '200': { description: ok } }
-  /v1/auth/register:
+  /auth/register:
     post:
       summary: "Register (deferred: auth-plus-postgres)"
-      responses: { '501': { description: scaffold } }
-  /v1/auth/login:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, email, password]
+              properties:
+                username: { type: string, minLength: 3 }
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+      responses:
+        '201':
+          description: created; personal tenant auto-provisioned, token pair issued
+        '501': { description: scaffold }
+  /auth/login:
     post:
       summary: "Login (deferred: auth-plus-postgres)"
-      responses: { '501': { description: scaffold } }
-  /v1/auth/refresh:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string }
+                username: { type: string }
+                password: { type: string }
+      responses:
+        '200': { description: ok, token pair issued }
+        '501': { description: scaffold }
+  /auth/refresh:
     post:
       summary: "Refresh (deferred: auth-plus-postgres)"
-      responses: { '501': { description: scaffold } }
-  /v1/tenants:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200': { description: ok, rotated token pair issued }
+        '501': { description: scaffold }
+  /tenants:
     post:
       summary: Create tenant
       parameters:
         - $ref: '#/components/parameters/TenantID'
       responses: { '501': { description: scaffold } }
-  /v1/tenants/{id}:
+  /tenants/{id}:
     get:
       summary: Get tenant
       parameters:
         - $ref: '#/components/parameters/TenantID'
       responses: { '501': { description: scaffold } }
-  /v1/executions:
+  /executions:
     post:
       summary: Submit execution
       parameters:
@@ -59,7 +96,7 @@ paths:
               required: [tenant_id, language, source]
               properties:
                 tenant_id: { type: string, format: uuid }
-                language: { type: string, enum: [python, c, java] }
+                language: { type: string, enum: [python] }
                 source: { type: string }
                 stdin: { type: string }
                 timeout_s: { type: integer, default: 2 }
@@ -70,7 +107,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/TenantID'
       responses: { '501': { description: scaffold } }
-  /v1/executions/{id}:
+  /executions/{id}:
     get:
       summary: Get execution
       parameters:

@@ -1,5 +1,6 @@
 -- name: CreateTenant :one
-INSERT INTO tenants (slug, namespace, tier) VALUES ($1, $2, $3)
+-- id is app-assigned so the namespace (runnix-tenant-<id>) is known before insert.
+INSERT INTO tenants (id, slug, namespace, tier) VALUES ($1, $2, $3, $4)
 RETURNING id, slug, namespace, tier, created_at;
 
 -- name: AddMembership :exec

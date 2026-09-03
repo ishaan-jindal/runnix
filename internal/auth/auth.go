@@ -67,13 +67,34 @@ func SignRefreshToken(secret, userID string) (string, error) {
 // ParseAccessToken validates and returns access claims.
 func ParseAccessToken(secret, token string) (*Claims, error) {
 	claims := &Claims{}
-	_, err := jwt.ParseWithClaims(token, claims, func(_ *jwt.Token) (any, error) {
-		return []byte(secret), nil
-	})
+	_, err := jwt.ParseWithClaims(token, claims, hmacKeyFunc(secret))
 	if err != nil {
 		return nil, err
 	}
 	return claims, nil
+}
+
+// ParseRefreshToken validates a refresh token and returns the user id.
+// Refresh tokens carry no tenant claims; memberships are re-resolved on refresh.
+func ParseRefreshToken(secret, token string) (string, error) {
+	claims := &jwt.RegisteredClaims{}
+	tok, err := jwt.ParseWithClaims(token, claims, hmacKeyFunc(secret))
+	if err != nil {
+		return "", err
+	}
+	if !tok.Valid || claims.Subject == "" {
+		return "", fmt.Errorf("invalid refresh token")
+	}
+	return claims.Subject, nil
+}
+
+func hmacKeyFunc(secret string) jwt.Keyfunc {
+	return func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method")
+		}
+		return []byte(secret), nil
+	}
 }
 
 // GenerateAPIKey returns (keyID, secret, fullKey). Only SHA-256 of the secret is stored.

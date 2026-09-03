@@ -44,18 +44,25 @@ func (q *Queries) CheckMembership(ctx context.Context, arg CheckMembershipParams
 }
 
 const createTenant = `-- name: CreateTenant :one
-INSERT INTO tenants (slug, namespace, tier) VALUES ($1, $2, $3)
+INSERT INTO tenants (id, slug, namespace, tier) VALUES ($1, $2, $3, $4)
 RETURNING id, slug, namespace, tier, created_at
 `
 
 type CreateTenantParams struct {
-	Slug      string `json:"slug"`
-	Namespace string `json:"namespace"`
-	Tier      string `json:"tier"`
+	ID        pgtype.UUID `json:"id"`
+	Slug      string      `json:"slug"`
+	Namespace string      `json:"namespace"`
+	Tier      string      `json:"tier"`
 }
 
+// id is app-assigned so the namespace (runnix-tenant-<id>) is known before insert.
 func (q *Queries) CreateTenant(ctx context.Context, arg CreateTenantParams) (Tenant, error) {
-	row := q.db.QueryRow(ctx, createTenant, arg.Slug, arg.Namespace, arg.Tier)
+	row := q.db.QueryRow(ctx, createTenant,
+		arg.ID,
+		arg.Slug,
+		arg.Namespace,
+		arg.Tier,
+	)
 	var i Tenant
 	err := row.Scan(
 		&i.ID,

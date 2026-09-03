@@ -30,8 +30,9 @@ type Execution struct {
 	UpdatedAt time.Time
 }
 
-// SupportedLanguages is the scaffold allowlist; runner images arrive deferred: k8s-jobs.
-var SupportedLanguages = []string{"python", "c", "java"}
+// SupportedLanguages is the allowlist. Python only for now;
+// other languages arrive later (deferred: <lang>-runner).
+var SupportedLanguages = []string{"python"}
 
 // ValidLanguage reports whether lang is supported.
 func ValidLanguage(lang string) bool {

@@ -11,9 +11,9 @@ func TestHealthAndLanguages(t *testing.T) {
 	h := NewRouter(RouterConfig{})
 
 	for path, want := range map[string]int{
-		"/healthz":      http.StatusOK,
-		"/readyz":       http.StatusOK,
-		"/v1/languages": http.StatusOK,
+		"/healthz":   http.StatusOK,
+		"/readyz":    http.StatusOK,
+		"/languages": http.StatusOK,
 	} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
@@ -23,7 +23,7 @@ func TestHealthAndLanguages(t *testing.T) {
 		}
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/languages", nil)
+	req := httptest.NewRequest(http.MethodGet, "/languages", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	var body struct {
@@ -32,14 +32,14 @@ func TestHealthAndLanguages(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Languages) == 0 {
-		t.Fatal("expected non-empty languages")
+	if len(body.Languages) != 1 || body.Languages[0] != "python" {
+		t.Fatalf("languages = %v, want [python]", body.Languages)
 	}
 }
 
-func TestV1StubsAre501WithoutSecret(t *testing.T) {
+func TestStubsAre501WithoutSecret(t *testing.T) {
 	h := NewRouter(RouterConfig{})
-	req := httptest.NewRequest(http.MethodGet, "/v1/executions/abc", nil)
+	req := httptest.NewRequest(http.MethodGet, "/executions/abc", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotImplemented {

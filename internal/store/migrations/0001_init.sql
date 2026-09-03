@@ -1,7 +1,8 @@
--- Runnix v2 scaffold schema: users <-> tenants (many-to-many) + executions.
+-- Runnix schema: users <-> tenants (many-to-many) + executions.
 -- Every execution is tenant-scoped. Never assume user_id == tenant_id.
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "citext";
 
 CREATE TABLE users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

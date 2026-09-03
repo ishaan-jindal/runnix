@@ -6,7 +6,10 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/ishaan-jindal/runnix/internal/auth"
+	"github.com/ishaan-jindal/runnix/internal/store/storedb"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // context keys (unexported to avoid collisions).
@@ -19,8 +22,37 @@ const (
 )
 
 // MembershipChecker reports whether user belongs to tenant and with which role.
-// Postgres implementation deferred: auth-plus-postgres; scaffold uses an in-memory stub in tests.
-type MembershipChecker func(userID, tenantID string) (role string, ok bool)
+type MembershipChecker func(ctx context.Context, userID, tenantID string) (role string, ok bool)
+
+// MembershipStore is the storedb subset RequireAuth needs. *storedb.Queries
+// satisfies it; tests stub it in memory.
+type MembershipStore interface {
+	CheckMembership(ctx context.Context, arg storedb.CheckMembershipParams) (string, error)
+}
+
+// DBChecker builds a MembershipChecker over Postgres.
+// Malformed UUIDs and missing rows report not-a-member (no error surface:
+// callers map that to 403).
+func DBChecker(q MembershipStore) MembershipChecker {
+	return func(ctx context.Context, userID, tenantID string) (string, bool) {
+		uid, err := uuid.Parse(userID)
+		if err != nil {
+			return "", false
+		}
+		tid, err := uuid.Parse(tenantID)
+		if err != nil {
+			return "", false
+		}
+		role, err := q.CheckMembership(ctx, storedb.CheckMembershipParams{
+			UserID:   pgtype.UUID{Bytes: uid, Valid: true},
+			TenantID: pgtype.UUID{Bytes: tid, Valid: true},
+		})
+		if err != nil {
+			return "", false
+		}
+		return role, true
+	}
+}
 
 // UserIDFrom returns the authenticated user id from context.
 func UserIDFrom(ctx context.Context) string {
@@ -69,7 +101,7 @@ func RequireAuth(secret string, check MembershipChecker) func(http.Handler) http
 			}
 			// Fall back to store check so refreshed memberships apply before re-login.
 			if !ok && check != nil {
-				role, ok = check(claims.Subject, tenantID)
+				role, ok = check(r.Context(), claims.Subject, tenantID)
 			}
 			if !ok {
 				writeErr(w, http.StatusForbidden, "not a member of tenant")

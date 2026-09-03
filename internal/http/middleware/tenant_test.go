@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -22,7 +23,7 @@ func TestRequireAuth(t *testing.T) {
 	ok := func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
-	check := func(userID, tenantID string) (string, bool) {
+	check := func(_ context.Context, _, tenantID string) (string, bool) {
 		if tenantID == "t-store" {
 			return "member", true
 		}

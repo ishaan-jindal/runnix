@@ -1,11 +1,11 @@
-# Runnix v2 — scaffold (v0.0.1-scaffold)
+# Runnix — scaffold (v0.0.1-scaffold)
 
 Multi-tenant sandboxed code execution on Kubernetes (Go + NATS JetStream + Postgres).
 Successor to `runnix-legacy` (Node, frozen). See vault `Runnix` for design.
 
 ## Tenancy
 
-`users <-> tenants` many-to-many via `memberships`. Every `/v1/*` tenant route
+`users <-> tenants` many-to-many via `memberships`. Every tenant route
 requires `Authorization: Bearer <jwt>` + `X-Tenant-ID`. JWT carries `tenants[]`;
 middleware re-checks membership so `403` means not-a-member (never assume
 `user_id == tenant_id`).
@@ -18,7 +18,7 @@ just test                # go test -race ./...
 just lint                # golangci-lint
 just generate            # sqlc generate (needs sqlc binary)
 curl localhost:4000/healthz
-curl localhost:4000/v1/languages
+curl localhost:4000/languages
 ```
 
 Env: `PORT=4000 ENV=development DATABASE_URL=... NATS_URL=... JWT_SECRET=...`
