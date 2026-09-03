@@ -1,0 +1,89 @@
+openapi: 3.0.3
+info:
+  title: Runnix v2 (tenant-first)
+  version: 0.0.1-scaffold
+  description: >
+    Scaffold surface. All /v1/executions and /v1/tenants/* routes require
+    Authorization: Bearer <jwt> AND X-Tenant-ID. 401 = bad token,
+    400 = missing tenant, 403 = not a member.
+servers:
+  - url: http://localhost:4000
+paths:
+  /healthz:
+    get:
+      summary: Liveness
+      responses: { '200': { description: ok } }
+  /readyz:
+    get:
+      summary: Readiness
+      responses: { '200': { description: ready } }
+  /v1/languages:
+    get:
+      summary: Supported languages
+      responses: { '200': { description: ok } }
+  /v1/auth/register:
+    post:
+      summary: Register (Phase 1)
+      responses: { '501': { description: scaffold } }
+  /v1/auth/login:
+    post:
+      summary: Login (Phase 1)
+      responses: { '501': { description: scaffold } }
+  /v1/auth/refresh:
+    post:
+      summary: Refresh (Phase 1)
+      responses: { '501': { description: scaffold } }
+  /v1/tenants:
+    post:
+      summary: Create tenant
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses: { '501': { description: scaffold } }
+  /v1/tenants/{id}:
+    get:
+      summary: Get tenant
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses: { '501': { description: scaffold } }
+  /v1/executions:
+    post:
+      summary: Submit execution
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant_id, language, source]
+              properties:
+                tenant_id: { type: string, format: uuid }
+                language: { type: string, enum: [python, c, java] }
+                source: { type: string }
+                stdin: { type: string }
+                timeout_s: { type: integer, default: 2 }
+                webhook_url: { type: string, format: uri }
+      responses: { '202': { description: queued }, '501': { description: scaffold } }
+    get:
+      summary: List executions for tenant
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses: { '501': { description: scaffold } }
+  /v1/executions/{id}:
+    get:
+      summary: Get execution
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+      responses: { '501': { description: scaffold } }
+components:
+  parameters:
+    TenantID:
+      name: X-Tenant-ID
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+security:
+  - bearerAuth: []

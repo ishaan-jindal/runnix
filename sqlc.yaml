@@ -1,0 +1,11 @@
+version: "2"
+sql:
+  - engine: postgresql
+    queries: internal/store/queries
+    schema: internal/store/migrations/0001_init.sql
+    gen:
+      go:
+        package: storedb
+        out: internal/store/storedb
+        sql_package: pgx/v5
+        emit_json_tags: true
