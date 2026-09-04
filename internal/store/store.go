@@ -1,6 +1,6 @@
-// Package store owns Postgres access (pgx + sqlc).
-// Scaffold: connection helper + hand-written types mirroring migrations.
-// Run `just generate` (sqlc) to replace types with generated code (deferred: sqlc-generated).
+// Package store owns Postgres access (pgx + sqlc): connection helper,
+// migrations, and pgtype conversions. Queries live in queries/*.sql and
+// generate into storedb/ via `just generate`.
 package store
 
 import (

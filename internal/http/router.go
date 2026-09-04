@@ -26,6 +26,11 @@ type RouterConfig struct {
 	MembershipChecker middleware.MembershipChecker
 	Pool              *pgxpool.Pool
 	NATS              rnats.Publisher
+	// WebhookSecret signs completion webhook delivery; empty disables
+	// webhook_url submissions (rejected with 503).
+	WebhookSecret string
+	// WebhookAllowPrivate relaxes the webhook SSRF blocklist (dev/tests).
+	WebhookAllowPrivate bool
 	// ReadyCheck, when set, backs /readyz with live dependency checks.
 	ReadyCheck func(ctx context.Context) error
 }
@@ -67,7 +72,12 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		if pub == nil {
 			pub = errPublisher{err: errors.New("nats unavailable")}
 		}
-		execH := &handlers.ExecutionsHandler{Store: storedb.New(cfg.Pool), Publisher: pub}
+		execH := &handlers.ExecutionsHandler{
+			Store:                storedb.New(cfg.Pool),
+			Publisher:            pub,
+			WebhooksEnabled:      cfg.WebhookSecret != "",
+			AllowPrivateWebhooks: cfg.WebhookAllowPrivate,
+		}
 		tenH := handlers.NewTenantsHandler(cfg.Pool)
 		createExec, listExec, getExec = execH.Create, execH.List, execH.Get
 		createTenant, getTenant = tenH.Create, tenH.Get

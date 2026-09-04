@@ -54,6 +54,33 @@ func (q *Queries) CreateExecution(ctx context.Context, arg CreateExecutionParams
 	return i, err
 }
 
+const finishExecution = `-- name: FinishExecution :exec
+UPDATE executions
+SET status = $2, stdout = $3, stderr = $4, exit_code = $5, updated_at = now()
+WHERE id = $1 AND status = 'running'
+`
+
+type FinishExecutionParams struct {
+	ID       pgtype.UUID `json:"id"`
+	Status   string      `json:"status"`
+	Stdout   string      `json:"stdout"`
+	Stderr   string      `json:"stderr"`
+	ExitCode pgtype.Int4 `json:"exit_code"`
+}
+
+// Writes a result for a running execution. status is one of
+// succeeded/failed/timeout (validated by the status CHECK constraint).
+func (q *Queries) FinishExecution(ctx context.Context, arg FinishExecutionParams) error {
+	_, err := q.db.Exec(ctx, finishExecution,
+		arg.ID,
+		arg.Status,
+		arg.Stdout,
+		arg.Stderr,
+		arg.ExitCode,
+	)
+	return err
+}
+
 const getExecution = `-- name: GetExecution :one
 SELECT id, tenant_id, language, status, source, stdin, stdout, stderr, exit_code, created_at, updated_at
 FROM executions WHERE id = $1 AND tenant_id = $2
@@ -140,6 +167,45 @@ func (q *Queries) ListExecutions(ctx context.Context, arg ListExecutionsParams) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const markExecutionRunning = `-- name: MarkExecutionRunning :execrows
+UPDATE executions
+SET status = 'running', updated_at = now()
+WHERE id = $1 AND status = 'queued'
+`
+
+// Claims a queued execution for the dispatcher. Only the claim that
+// transitions queued->running runs the code; duplicate JetStream deliveries
+// (at-least-once) see 0 rows and are acked and skipped.
+func (q *Queries) MarkExecutionRunning(ctx context.Context, id pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, markExecutionRunning, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const reapStaleExecutions = `-- name: ReapStaleExecutions :execrows
+UPDATE executions
+SET status = 'failed', stderr = $1, updated_at = now()
+WHERE status = 'running' AND updated_at < now() - make_interval(secs => $2::int)
+`
+
+type ReapStaleExecutionsParams struct {
+	Stderr    string `json:"stderr"`
+	StaleSecs int32  `json:"stale_secs"`
+}
+
+// Fails executions stuck "running" because their dispatcher died between
+// claim and finish. Guarded by status + staleness, so multiple replicas and
+// late JetStream redeliveries are harmless.
+func (q *Queries) ReapStaleExecutions(ctx context.Context, arg ReapStaleExecutionsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, reapStaleExecutions, arg.Stderr, arg.StaleSecs)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setExecutionFailed = `-- name: SetExecutionFailed :exec

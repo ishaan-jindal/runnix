@@ -88,7 +88,7 @@ func queuedRow(t *testing.T) storedb.CreateExecutionRow {
 }
 
 func TestCreateValidation(t *testing.T) {
-	h := &ExecutionsHandler{Store: &fakeExecutionStore{}, Publisher: &fakePublisher{}}
+	h := &ExecutionsHandler{Store: &fakeExecutionStore{}, Publisher: &fakePublisher{}, WebhooksEnabled: true}
 	big := strings.Repeat("x", MaxSourceBytes+1)
 
 	for name, tc := range map[string]struct {
@@ -121,12 +121,23 @@ func TestCreateValidation(t *testing.T) {
 	}
 }
 
+func TestCreateWebhookNotConfigured(t *testing.T) {
+	// No signing secret configured: webhook submissions are refused outright.
+	h := &ExecutionsHandler{Store: &fakeExecutionStore{}, Publisher: &fakePublisher{}}
+	code, raw := doJSON(t, http.HandlerFunc(h.Create), http.MethodPost, "/executions",
+		map[string]string{"X-Tenant-ID": testTenantID},
+		map[string]any{"language": "python", "source": "print(1)", "webhook_url": "https://hooks.example.com/done"})
+	if code != http.StatusServiceUnavailable {
+		t.Fatalf("= %d (%s), want 503", code, raw)
+	}
+}
+
 func TestCreateSuccessPublishes(t *testing.T) {
 	st := &fakeExecutionStore{createRow: queuedRow(t)}
 	pub := &fakePublisher{}
-	h := &ExecutionsHandler{Store: st, Publisher: pub}
+	h := &ExecutionsHandler{Store: st, Publisher: pub, WebhooksEnabled: true}
 
-	body := map[string]any{"language": "python", "source": "print('hi')", "stdin": "in"}
+	body := map[string]any{"language": "python", "source": "print('hi')", "stdin": "in", "webhook_url": "https://93.184.216.34/done"}
 	code, raw := doJSON(t, http.HandlerFunc(h.Create), http.MethodPost, "/executions",
 		map[string]string{"X-Tenant-ID": testTenantID}, body)
 	if code != http.StatusAccepted {
@@ -152,6 +163,9 @@ func TestCreateSuccessPublishes(t *testing.T) {
 		msg.Language != "python" || msg.Source != "print('hi')" ||
 		msg.Stdin != "in" || msg.TimeoutS != DefaultTimeoutS {
 		t.Fatalf("submit message = %+v", msg)
+	}
+	if msg.WebhookURL != "https://93.184.216.34/done" {
+		t.Fatalf("webhook_url = %q, want it forwarded", msg.WebhookURL)
 	}
 }
 

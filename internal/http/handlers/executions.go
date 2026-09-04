@@ -44,6 +44,11 @@ type ExecutionStore interface {
 type ExecutionsHandler struct {
 	Store     ExecutionStore
 	Publisher rnats.Publisher
+	// WebhooksEnabled allows webhook_url submissions; it reflects whether a
+	// signing secret is configured. AllowPrivateWebhooks relaxes the webhook
+	// SSRF blocklist (development/tests only).
+	WebhooksEnabled      bool
+	AllowPrivateWebhooks bool
 }
 
 type createExecutionRequest struct {
@@ -119,7 +124,11 @@ func (h *ExecutionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.WebhookURL != "" {
-		if err := webhooks.ValidateCallbackURL(req.WebhookURL); err != nil {
+		if !h.WebhooksEnabled {
+			writeErr(w, http.StatusServiceUnavailable, "webhooks are not configured on this server")
+			return
+		}
+		if err := webhooks.ValidateCallbackURL(r.Context(), req.WebhookURL, webhooks.Options{AllowPrivate: h.AllowPrivateWebhooks}); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid webhook_url")
 			return
 		}

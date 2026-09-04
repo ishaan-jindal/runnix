@@ -27,10 +27,20 @@ services:
       ENV: development
       DATABASE_URL: postgres://runnix:runnix@postgres:5432/runnix?sslmode=disable
       NATS_URL: nats://nats:4222
+      WEBHOOK_SIGNING_SECRET: dev-webhook-signing-secret
+      # Dev convenience: allows webhook receivers on localhost/private hosts.
+      WEBHOOK_ALLOW_PRIVATE: "true"
     ports: ["4000:4000"]
     depends_on:
       postgres: { condition: service_healthy }
       nats: { condition: service_started }
+
+  # Build-only: tags the sandbox runner image the dispatcher uses.
+  runner-python:
+    image: runnix-runner-python:local
+    build:
+      context: ../runner/docker
+    restart: "no"
 
   dispatcher:
     build:
@@ -40,6 +50,20 @@ services:
       ENV: development
       DATABASE_URL: postgres://runnix:runnix@postgres:5432/runnix?sslmode=disable
       NATS_URL: nats://nats:4222
+      EXEC_WORKERS: "2"
+      RUNNER_IMAGE: runnix-runner-python:local
+      RUNNER_RUNTIME: runsc
+      WEBHOOK_SIGNING_SECRET: dev-webhook-signing-secret
+      WEBHOOK_ALLOW_PRIVATE: "true"
+      REAP_INTERVAL: 1m
+      REAP_STALE_AFTER: 5m
+    # Dev-only: the dispatcher drives the host Docker daemon (gVisor runsc)
+    # to sandbox executions. K8s removes the socket (Job-per-execution).
+    # Root is required to read the socket; the code under test still runs as
+    # non-root inside its own container.
+    user: root
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres: { condition: service_healthy }
       nats: { condition: service_started }

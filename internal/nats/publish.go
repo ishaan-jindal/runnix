@@ -1,8 +1,9 @@
 // Publish support for the runnix JetStream streams.
 //
 // The gateway publishes one message per execution to exec.submit.<lang>.
-// The dispatcher (execution loop deferred to a later slice) consumes them;
-// each publish is at-least-once, so the consumer dedupes by execution_id.
+// The dispatcher consumes them and publishes summaries to exec.result.<id>;
+// each publish is at-least-once, so the consumer dedupes by execution_id
+// via the DB claim guard.
 package nats
 
 import (
@@ -23,6 +24,16 @@ type SubmitMessage struct {
 	Stdin       string `json:"stdin"`
 	TimeoutS    int    `json:"timeout_s"`
 	WebhookURL  string `json:"webhook_url,omitempty"`
+}
+
+// ResultMessage is the summary published to exec.result.<execution_id> when a
+// run finishes. Full stdout/stderr live in Postgres; only a summary travels on
+// the wire so the stream stays small.
+type ResultMessage struct {
+	ExecutionID string `json:"execution_id"`
+	TenantID    string `json:"tenant_id"`
+	Status      string `json:"status"` // succeeded | failed | timeout
+	ExitCode    *int   `json:"exit_code"`
 }
 
 // Publisher is the JetStream surface the gateway needs. *Client satisfies it;
@@ -77,6 +88,22 @@ func (c *Client) PublishSubmit(ctx context.Context, msg SubmitMessage) error {
 	}
 	if _, err := js.Publish(ctx, SubjectForSubmit(msg.Language), raw); err != nil {
 		return fmt.Errorf("publish submit: %w", err)
+	}
+	return nil
+}
+
+// PublishResult publishes a ResultMessage to exec.result.<executionID>.
+func (c *Client) PublishResult(ctx context.Context, msg ResultMessage) error {
+	js, err := c.JS()
+	if err != nil {
+		return fmt.Errorf("jetstream: %w", err)
+	}
+	raw, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("encode result message: %w", err)
+	}
+	if _, err := js.Publish(ctx, SubjectForResult(msg.ExecutionID), raw); err != nil {
+		return fmt.Errorf("publish result: %w", err)
 	}
 	return nil
 }

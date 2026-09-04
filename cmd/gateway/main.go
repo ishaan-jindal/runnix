@@ -49,7 +49,11 @@ func main() {
 		return
 	}
 
-	routerCfg := gwhttp.RouterConfig{JWTSecret: cfg.JWTSecret}
+	routerCfg := gwhttp.RouterConfig{
+		JWTSecret:           cfg.JWTSecret,
+		WebhookSecret:       cfg.WebhookSigningSecret,
+		WebhookAllowPrivate: cfg.WebhookAllowPrivate,
+	}
 	if db != nil {
 		routerCfg.Pool = db.Pool
 	}
