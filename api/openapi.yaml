@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Runnix
-  version: 0.0.1-scaffold
+  version: 0.1.0
   description: >
     Runnix API. All executions and tenants routes require
     Authorization: Bearer <jwt> AND X-Tenant-ID. 401 = bad token,
@@ -15,15 +15,17 @@ paths:
       responses: { '200': { description: ok } }
   /readyz:
     get:
-      summary: Readiness
-      responses: { '200': { description: ready } }
+      summary: Readiness (live Postgres + NATS checks)
+      responses:
+        '200': { description: ready }
+        '503': { description: a dependency is unavailable }
   /languages:
     get:
       summary: Supported languages
       responses: { '200': { description: ok } }
   /auth/register:
     post:
-      summary: "Register (deferred: auth-plus-postgres)"
+      summary: "Register"
       requestBody:
         required: true
         content:
@@ -38,10 +40,9 @@ paths:
       responses:
         '201':
           description: created; personal tenant auto-provisioned, token pair issued
-        '501': { description: scaffold }
   /auth/login:
     post:
-      summary: "Login (deferred: auth-plus-postgres)"
+      summary: "Login"
       requestBody:
         required: true
         content:
@@ -54,10 +55,9 @@ paths:
                 password: { type: string }
       responses:
         '200': { description: ok, token pair issued }
-        '501': { description: scaffold }
   /auth/refresh:
     post:
-      summary: "Refresh (deferred: auth-plus-postgres)"
+      summary: "Refresh"
       requestBody:
         required: true
         content:
@@ -69,22 +69,41 @@ paths:
                 refreshToken: { type: string }
       responses:
         '200': { description: ok, rotated token pair issued }
-        '501': { description: scaffold }
   /tenants:
     post:
-      summary: Create tenant
+      summary: Create org tenant (caller becomes owner)
       parameters:
         - $ref: '#/components/parameters/TenantID'
-      responses: { '501': { description: scaffold } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 3, maxLength: 60 }
+                slug: { type: string, pattern: '^[a-z0-9-]{3,40}$', description: optional; derived from name when absent }
+      responses:
+        '201': { description: tenant created }
+        '400': { description: invalid name/slug }
+        '403': { description: authentication required (no user identity) }
   /tenants/{id}:
     get:
-      summary: Get tenant
+      summary: Get tenant (id must equal X-Tenant-ID)
       parameters:
         - $ref: '#/components/parameters/TenantID'
-      responses: { '501': { description: scaffold } }
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: ok }
+        '403': { description: id does not match X-Tenant-ID or not a member }
+        '404': { description: tenant not found }
   /executions:
     post:
-      summary: Submit execution
+      summary: Submit execution (persisted queued, published to JetStream)
       parameters:
         - $ref: '#/components/parameters/TenantID'
       requestBody:
@@ -95,24 +114,42 @@ paths:
               type: object
               required: [tenant_id, language, source]
               properties:
-                tenant_id: { type: string, format: uuid }
+                tenant_id: { type: string, format: uuid, description: must equal X-Tenant-ID }
                 language: { type: string, enum: [python] }
-                source: { type: string }
-                stdin: { type: string }
-                timeout_s: { type: integer, default: 2 }
-                webhook_url: { type: string, format: uri }
-      responses: { '202': { description: queued }, '501': { description: scaffold } }
+                source: { type: string, maxLength: 102400 }
+                stdin: { type: string, maxLength: 102400 }
+                timeout_s: { type: integer, minimum: 1, maximum: 60, default: 2 }
+                webhook_url: { type: string, format: uri, description: http(s) only for now; SSRF blocklist deferred }
+      responses:
+        '202': { description: 'queued; body {id, status, created_at}' }
+        '400': { description: invalid input }
+        '403': { description: tenant_id does not match X-Tenant-ID }
+        '502': { description: submit queue unavailable; execution marked failed }
     get:
-      summary: List executions for tenant
+      summary: List executions for tenant (newest first)
       parameters:
         - $ref: '#/components/parameters/TenantID'
-      responses: { '501': { description: scaffold } }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200': { description: 'ok; body {executions, limit, offset}' }
   /executions/{id}:
     get:
-      summary: Get execution
+      summary: Get execution (always tenant-scoped; 404 when owned by another tenant)
       parameters:
         - $ref: '#/components/parameters/TenantID'
-      responses: { '501': { description: scaffold } }
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: 'ok; full execution incl. source, stdout, stderr, exit_code' }
+        '400': { description: invalid id }
+        '404': { description: execution not found }
 components:
   parameters:
     TenantID:

@@ -1,5 +1,5 @@
-// Package nats defines JetStream subject conventions and a stub client.
-// Real publish/subscribe is deferred: nats-publish; the dispatcher
+// Package nats defines JetStream subject conventions and the client.
+// The gateway publishes submit messages (see publish.go); the dispatcher
 // consumer groups per language are documented here so both sides agree.
 package nats
 
@@ -25,12 +25,13 @@ func SubjectForResult(executionID string) string {
 	return fmt.Sprintf("exec.result.%s", executionID)
 }
 
-// Client is a thin wrapper reserved for publish/subscribe logic (deferred: nats-publish).
+// Client wraps a NATS connection plus its JetStream streams.
 type Client struct {
 	Conn *natsgo.Conn
 }
 
-// Connect dials NATS (used by dispatcher stub health check; gateway defers use).
+// Connect dials NATS (used by gateway and dispatcher; callers degrade when
+// the dial fails).
 func Connect(url string) (*Client, error) {
 	nc, err := natsgo.Connect(url)
 	if err != nil {

@@ -57,34 +57,34 @@ type userJSON struct {
 //	POST /auth/register {username, email, password} → 201
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
-	if !decode(w, r, &req) {
+	if !decodeBody(w, r, &req) {
 		return
 	}
 	req.Username = strings.TrimSpace(req.Username)
 	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 	if len(req.Username) < 3 {
-		writeAuthErr(w, http.StatusBadRequest, "username must be 3+ characters")
+		writeErr(w, http.StatusBadRequest, "username must be 3+ characters")
 		return
 	}
 	if _, err := mail.ParseAddress(req.Email); err != nil {
-		writeAuthErr(w, http.StatusBadRequest, "invalid email")
+		writeErr(w, http.StatusBadRequest, "invalid email")
 		return
 	}
 	if len(req.Password) < 8 {
-		writeAuthErr(w, http.StatusBadRequest, "password must be 8+ characters")
+		writeErr(w, http.StatusBadRequest, "password must be 8+ characters")
 		return
 	}
 
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
-		writeAuthErr(w, http.StatusInternalServerError, "could not create user")
+		writeErr(w, http.StatusInternalServerError, "could not create user")
 		return
 	}
 
 	ctx := r.Context()
 	tx, err := h.Pool.Begin(ctx)
 	if err != nil {
-		writeAuthErr(w, http.StatusInternalServerError, "could not create user")
+		writeErr(w, http.StatusInternalServerError, "could not create user")
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
@@ -96,7 +96,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		PasswordHash: hash,
 	})
 	if err != nil {
-		writeAuthErr(w, pgConflictStatus(err), pgConflictMessage(err, "username or email already exists"))
+		writeErr(w, pgConflictStatus(err), pgConflictMessage(err, "username or email already exists"))
 		return
 	}
 
@@ -108,18 +108,15 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		if attempt > 0 {
 			slug = fmt.Sprintf("%s-%s", base, uuid.NewString()[:4])
 		}
-		t, err := q.CreateTenant(ctx, storedb.CreateTenantParams{
-			ID:        store.UUIDToPg(tenantID),
-			Slug:      slug,
-			Namespace: "runnix-tenant-" + tenantID.String(),
-			Tier:      "free",
-		})
+		// Savepoint per attempt: a slug conflict aborts only the
+		// savepoint, leaving the outer tx usable for the retry.
+		t, err := createTenantTx(ctx, tx, tenantID, slug)
 		if err == nil {
 			tenant = t
 			break
 		}
 		if pgConflictStatus(err) != http.StatusConflict || attempt >= 4 {
-			writeAuthErr(w, pgConflictStatus(err), pgConflictMessage(err, "username is taken"))
+			writeErr(w, pgConflictStatus(err), pgConflictMessage(err, "username is taken"))
 			return
 		}
 	}
@@ -128,11 +125,11 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		TenantID: tenant.ID,
 		Role:     "owner",
 	}); err != nil {
-		writeAuthErr(w, http.StatusInternalServerError, "could not create membership")
+		writeErr(w, http.StatusInternalServerError, "could not create membership")
 		return
 	}
 	if err := tx.Commit(ctx); err != nil {
-		writeAuthErr(w, http.StatusInternalServerError, "could not create user")
+		writeErr(w, http.StatusInternalServerError, "could not create user")
 		return
 	}
 
@@ -144,13 +141,13 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 //	POST /auth/login {email|username, password} → 200
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
-	if !decode(w, r, &req) {
+	if !decodeBody(w, r, &req) {
 		return
 	}
 	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 	req.Username = strings.TrimSpace(req.Username)
 	if req.Password == "" || (req.Email == "" && req.Username == "") {
-		writeAuthErr(w, http.StatusBadRequest, "email or username and password are required")
+		writeErr(w, http.StatusBadRequest, "email or username and password are required")
 		return
 	}
 
@@ -167,14 +164,14 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeAuthErr(w, http.StatusUnauthorized, "invalid credentials")
+			writeErr(w, http.StatusUnauthorized, "invalid credentials")
 			return
 		}
-		writeAuthErr(w, http.StatusInternalServerError, "could not log in")
+		writeErr(w, http.StatusInternalServerError, "could not log in")
 		return
 	}
 	if err := auth.CheckPassword(user.PasswordHash, req.Password); err != nil {
-		writeAuthErr(w, http.StatusUnauthorized, "invalid credentials")
+		writeErr(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 
@@ -187,32 +184,32 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 //	POST /auth/refresh {refreshToken} → 200
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	var req refreshRequest
-	if !decode(w, r, &req) {
+	if !decodeBody(w, r, &req) {
 		return
 	}
 	if req.RefreshToken == "" {
-		writeAuthErr(w, http.StatusBadRequest, "refreshToken is required")
+		writeErr(w, http.StatusBadRequest, "refreshToken is required")
 		return
 	}
 	userID, err := auth.ParseRefreshToken(h.JWTSecret, req.RefreshToken)
 	if err != nil {
-		writeAuthErr(w, http.StatusUnauthorized, "invalid refresh token")
+		writeErr(w, http.StatusUnauthorized, "invalid refresh token")
 		return
 	}
 
 	ctx := r.Context()
 	uid, err := store.ParsePg(userID)
 	if err != nil {
-		writeAuthErr(w, http.StatusUnauthorized, "invalid refresh token")
+		writeErr(w, http.StatusUnauthorized, "invalid refresh token")
 		return
 	}
 	user, err := storedb.New(h.Pool).GetUserByID(ctx, uid)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeAuthErr(w, http.StatusUnauthorized, "invalid refresh token")
+			writeErr(w, http.StatusUnauthorized, "invalid refresh token")
 			return
 		}
-		writeAuthErr(w, http.StatusInternalServerError, "could not refresh")
+		writeErr(w, http.StatusInternalServerError, "could not refresh")
 		return
 	}
 
@@ -225,12 +222,12 @@ func (h *AuthHandler) writeSession(w http.ResponseWriter, code int, userID, user
 	// A brand-new user always has exactly one (owner of the personal tenant).
 	uid, err := store.ParsePg(userID)
 	if err != nil {
-		writeAuthErr(w, http.StatusInternalServerError, "could not create session")
+		writeErr(w, http.StatusInternalServerError, "could not create session")
 		return
 	}
 	rows, err := storedb.New(h.Pool).ListTenantMemberships(context.Background(), uid)
 	if err != nil {
-		writeAuthErr(w, http.StatusInternalServerError, "could not create session")
+		writeErr(w, http.StatusInternalServerError, "could not create session")
 		return
 	}
 	tenants := make([]tenantJSON, 0, len(rows))
@@ -243,12 +240,12 @@ func (h *AuthHandler) writeSession(w http.ResponseWriter, code int, userID, user
 
 	access, err := auth.SignAccessToken(h.JWTSecret, userID, claims)
 	if err != nil {
-		writeAuthErr(w, http.StatusInternalServerError, "could not create session")
+		writeErr(w, http.StatusInternalServerError, "could not create session")
 		return
 	}
 	refresh, err := auth.SignRefreshToken(h.JWTSecret, userID)
 	if err != nil {
-		writeAuthErr(w, http.StatusInternalServerError, "could not create session")
+		writeErr(w, http.StatusInternalServerError, "could not create session")
 		return
 	}
 
@@ -302,19 +299,4 @@ func pgConflictMessage(err error, fallback string) string {
 		return fallback
 	}
 	return "could not complete request"
-}
-
-func decode(w http.ResponseWriter, r *http.Request, v any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		writeAuthErr(w, http.StatusBadRequest, "invalid JSON body")
-		return false
-	}
-	return true
-}
-
-func writeAuthErr(w http.ResponseWriter, code int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }

@@ -2,7 +2,7 @@ version: "2"
 sql:
   - engine: postgresql
     queries: internal/store/queries
-    schema: internal/store/migrations/0001_init.sql
+    schema: internal/store/migrations
     gen:
       go:
         package: storedb

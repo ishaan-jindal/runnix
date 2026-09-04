@@ -1,94 +1,9 @@
 package handlers
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
 	"net/http"
-	"net/http/httptest"
-	"os"
 	"testing"
-	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
-
-const testJWTSecret = "integration-test-secret-min-32-bytes!!"
-
-// testPool boots postgres:16-alpine, applies the migration, and returns a pool.
-// Skips when Docker is unavailable so unit runs stay green everywhere.
-func testPool(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-
-	ctr, err := postgres.Run(ctx, "postgres:16-alpine",
-		postgres.WithDatabase("runnix_test"),
-		postgres.WithUsername("runnix"),
-		postgres.WithPassword("runnix"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
-			wait.ForListeningPort("5432/tcp"),
-		),
-	)
-	if err != nil {
-		t.Skipf("docker unavailable, skipping integration test: %v", err)
-	}
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-		defer cancel()
-		_ = ctr.Terminate(ctx)
-	})
-
-	connStr, err := ctr.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		t.Fatal(err)
-	}
-	pool, err := pgxpool.New(ctx, connStr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	// Tests run with CWD set to this package dir.
-	migration, err := os.ReadFile("../../store/migrations/0001_init.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, string(migration)); err != nil {
-		t.Fatalf("migration failed: %v", err)
-	}
-	return pool
-}
-
-type sessionJSON struct {
-	User struct {
-		ID       string `json:"id"`
-		Username string `json:"username"`
-		Email    string `json:"email"`
-	} `json:"user"`
-	Tenants []struct {
-		ID   string `json:"id"`
-		Slug string `json:"slug"`
-		Role string `json:"role"`
-	} `json:"tenants"`
-	AccessToken  string `json:"accessToken"`
-	RefreshToken string `json:"refreshToken"`
-}
-
-func postJSON(t *testing.T, h http.Handler, path string, body any) (int, sessionJSON) {
-	t.Helper()
-	raw, _ := json.Marshal(body)
-	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(raw))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	var sess sessionJSON
-	_ = json.NewDecoder(rec.Body).Decode(&sess)
-	return rec.Code, sess
-}
 
 func TestRegisterLoginRefreshRoundTrip(t *testing.T) {
 	pool := testPool(t)

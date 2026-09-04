@@ -33,4 +33,4 @@ compose-down:
     docker compose -f deploy/compose.yaml down -v
 
 migrate-up:
-    psql "$DATABASE_URL" -f internal/store/migrations/0001_init.sql
+    go run ./cmd/gateway -migrate-only

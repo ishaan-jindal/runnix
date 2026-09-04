@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -13,10 +14,21 @@ func Health(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "service": "runnix-gateway"})
 }
 
-// Ready returns readiness. Scaffold: static ok; live Postgres + NATS checks deferred: gateway-mvp.
-func Ready(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
+// ReadyHandler returns readiness. When check is set (gateway wires live
+// Postgres + NATS checks) a failing dependency yields 503; nil keeps the
+// static ok used in tests.
+func ReadyHandler(check func(ctx context.Context) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if check != nil {
+			if err := check(r.Context()); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_ = json.NewEncoder(w).Encode(map[string]string{"status": "not_ready", "error": err.Error()})
+				return
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
+	}
 }
 
 // Metrics exposes Prometheus metrics.

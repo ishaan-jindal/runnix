@@ -12,16 +12,18 @@ import (
 )
 
 const createExecution = `-- name: CreateExecution :one
-INSERT INTO executions (tenant_id, language, source, stdin)
-VALUES ($1, $2, $3, $4)
+INSERT INTO executions (tenant_id, language, source, stdin, timeout_s, webhook_url)
+VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, tenant_id, language, status, created_at
 `
 
 type CreateExecutionParams struct {
-	TenantID pgtype.UUID `json:"tenant_id"`
-	Language string      `json:"language"`
-	Source   string      `json:"source"`
-	Stdin    string      `json:"stdin"`
+	TenantID   pgtype.UUID `json:"tenant_id"`
+	Language   string      `json:"language"`
+	Source     string      `json:"source"`
+	Stdin      string      `json:"stdin"`
+	TimeoutS   int32       `json:"timeout_s"`
+	WebhookUrl pgtype.Text `json:"webhook_url"`
 }
 
 type CreateExecutionRow struct {
@@ -38,6 +40,8 @@ func (q *Queries) CreateExecution(ctx context.Context, arg CreateExecutionParams
 		arg.Language,
 		arg.Source,
 		arg.Stdin,
+		arg.TimeoutS,
+		arg.WebhookUrl,
 	)
 	var i CreateExecutionRow
 	err := row.Scan(
@@ -60,9 +64,23 @@ type GetExecutionParams struct {
 	TenantID pgtype.UUID `json:"tenant_id"`
 }
 
-func (q *Queries) GetExecution(ctx context.Context, arg GetExecutionParams) (Execution, error) {
+type GetExecutionRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	TenantID  pgtype.UUID        `json:"tenant_id"`
+	Language  string             `json:"language"`
+	Status    string             `json:"status"`
+	Source    string             `json:"source"`
+	Stdin     string             `json:"stdin"`
+	Stdout    string             `json:"stdout"`
+	Stderr    string             `json:"stderr"`
+	ExitCode  pgtype.Int4        `json:"exit_code"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) GetExecution(ctx context.Context, arg GetExecutionParams) (GetExecutionRow, error) {
 	row := q.db.QueryRow(ctx, getExecution, arg.ID, arg.TenantID)
-	var i Execution
+	var i GetExecutionRow
 	err := row.Scan(
 		&i.ID,
 		&i.TenantID,
@@ -122,4 +140,21 @@ func (q *Queries) ListExecutions(ctx context.Context, arg ListExecutionsParams) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const setExecutionFailed = `-- name: SetExecutionFailed :exec
+UPDATE executions
+SET status = 'failed', stderr = $2, updated_at = now()
+WHERE id = $1 AND status = 'queued'
+`
+
+type SetExecutionFailedParams struct {
+	ID     pgtype.UUID `json:"id"`
+	Stderr string      `json:"stderr"`
+}
+
+// Marks a queued execution failed (e.g. the submit queue was unreachable).
+func (q *Queries) SetExecutionFailed(ctx context.Context, arg SetExecutionFailedParams) error {
+	_, err := q.db.Exec(ctx, setExecutionFailed, arg.ID, arg.Stderr)
+	return err
 }

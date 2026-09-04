@@ -19,17 +19,19 @@ type ApiKey struct {
 }
 
 type Execution struct {
-	ID        pgtype.UUID        `json:"id"`
-	TenantID  pgtype.UUID        `json:"tenant_id"`
-	Language  string             `json:"language"`
-	Status    string             `json:"status"`
-	Source    string             `json:"source"`
-	Stdin     string             `json:"stdin"`
-	Stdout    string             `json:"stdout"`
-	Stderr    string             `json:"stderr"`
-	ExitCode  pgtype.Int4        `json:"exit_code"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID         pgtype.UUID        `json:"id"`
+	TenantID   pgtype.UUID        `json:"tenant_id"`
+	Language   string             `json:"language"`
+	Status     string             `json:"status"`
+	Source     string             `json:"source"`
+	Stdin      string             `json:"stdin"`
+	Stdout     string             `json:"stdout"`
+	Stderr     string             `json:"stderr"`
+	ExitCode   pgtype.Int4        `json:"exit_code"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+	TimeoutS   int32              `json:"timeout_s"`
+	WebhookUrl pgtype.Text        `json:"webhook_url"`
 }
 
 type Membership struct {

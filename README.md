@@ -31,5 +31,9 @@ Env: `PORT=4000 ENV=development DATABASE_URL=... NATS_URL=... JWT_SECRET=...`
 
 ## Status
 
-Scaffold only: routes return `501`, dispatcher idles, Helm/RuntimeClass/Job execution deferred.
-Next: gateway MVP (deferred: auth-plus-postgres, nats-publish).
+Auth (register/login/refresh), executions (submit/list/get), and tenants
+(create/get) are live against Postgres; submits publish to NATS JetStream
+(`exec.submit.<lang>`). Gateway auto-applies migrations at startup
+(`just migrate-up` for standalone DBs). Dispatcher execution loop, runner
+images, and Helm/RuntimeClass/Job execution deferred.
+Next: dispatcher Docker sandbox runner.

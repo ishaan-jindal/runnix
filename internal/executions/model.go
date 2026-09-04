@@ -17,17 +17,19 @@ const (
 
 // Execution is one code submission and its result.
 type Execution struct {
-	ID        string
-	TenantID  string
-	Language  string
-	Status    Status
-	Source    string
-	Stdin     string
-	Stdout    string
-	Stderr    string
-	ExitCode  *int
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID         string
+	TenantID   string
+	Language   string
+	Status     Status
+	Source     string
+	Stdin      string
+	Stdout     string
+	Stderr     string
+	ExitCode   *int
+	TimeoutS   int    // 1-60, default 2; validated at the gateway
+	WebhookURL string // optional, http(s) only
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // SupportedLanguages is the allowlist. Python only for now;
