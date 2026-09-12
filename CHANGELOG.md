@@ -8,7 +8,7 @@ Everything below `1.0.0` is pre-release and may change without notice.
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-09-04
+## [0.1.0] - 2026-09-12
 
 First working slice: authenticate, submit Python code, poll for the result —
 sandboxed, metered by tenant, with signed completion webhooks.
