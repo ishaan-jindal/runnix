@@ -1,17 +1,16 @@
 # Runnix
 
+[![ci](https://github.com/ishaan-jindal/runnix/actions/workflows/ci.yml/badge.svg)](https://github.com/ishaan-jindal/runnix/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/ishaan-jindal/runnix)](https://github.com/ishaan-jindal/runnix/releases)
+[![license](https://img.shields.io/github/license/ishaan-jindal/runnix)](LICENSE)
+
 Multi-tenant sandboxed code execution. Clients authenticate, submit source
 code, and poll (or receive a webhook) for the result. Every execution runs
 isolated, resource-bounded, and auditable.
 
-> **v0.1.0.** The API and sandbox posture work end to end on
-> Docker Compose. Kubernetes execution (Job-per-execution, namespaces,
-> quotas, Helm) is planned for a later slice.
-
-Runnix is the successor to [`runnix-legacy`](https://github.com/ishaan-jindal/runnix-legacy),
-a Node.js prototype now frozen and archived. This rewrite keeps the API shape and sandbox guarantees but
-replaces the single-VM design with Go services, NATS JetStream, and
-Postgres — built to scale onto Kubernetes.
+Built with Go services, NATS JetStream, and Postgres. The successor to
+[`runnix-legacy`](https://github.com/ishaan-jindal/runnix-legacy), a Node.js
+prototype now frozen and archived.
 
 ## Features
 
@@ -140,8 +139,6 @@ just dispatcher          # run the dispatcher locally (needs Docker + Postgres +
 
 Integration tests boot real Postgres/NATS containers and run real code
 in the sandbox; they skip automatically when Docker is unavailable.
-Conventions: no `phase` wording in commits or code — use `deferred:
-<topic>` tags for follow-ups. Commits are signed off and GPG-signed.
 
 ## Security model
 
@@ -159,10 +156,6 @@ Conventions: no `phase` wording in commits or code — use `deferred:
   re-resolved at delivery; `WEBHOOK_ALLOW_PRIVATE` lifts this for local
   dev). Deliveries are HMAC-SHA256-signed over `<timestamp>.<body>`,
   retried 3× on transport errors/5xx/429, never follow redirects.
-
-Known dev-only posture: the compose dispatcher mounts the host Docker
-socket and runs as root to read it. Kubernetes execution removes the
-socket entirely (Job-per-execution with a service account).
 
 ## License
 
