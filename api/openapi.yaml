@@ -26,6 +26,7 @@ paths:
   /auth/register:
     post:
       summary: "Register"
+      security: []
       requestBody:
         required: true
         content:
@@ -43,6 +44,7 @@ paths:
   /auth/login:
     post:
       summary: "Login"
+      security: []
       requestBody:
         required: true
         content:
@@ -58,6 +60,7 @@ paths:
   /auth/refresh:
     post:
       summary: "Refresh"
+      security: []
       requestBody:
         required: true
         content:
@@ -69,6 +72,38 @@ paths:
                 refreshToken: { type: string }
       responses:
         '200': { description: ok, rotated token pair issued }
+        '400': { description: missing refreshToken or invalid JSON body }
+        '401': { description: unknown, revoked, or expired refresh token }
+  /auth/logout:
+    post:
+      summary: "Logout (revoke one refresh token; idempotent, always 200 even with empty or malformed body)"
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200': { description: logged out }
+  /auth/logout-all:
+    post:
+      summary: "Logout all sessions (revoke every refresh token)"
+      security:
+        - bearerAuth: []
+      responses:
+        '200': { description: logged out }
+        '401': { description: bad token }
+  /users/me:
+    get:
+      summary: "Current user with tenant memberships"
+      security:
+        - bearerAuth: []
+      responses:
+        '200': { description: ok }
+        '401': { description: bad token }
   /tenants:
     post:
       summary: Create org tenant (caller becomes owner)
@@ -101,6 +136,56 @@ paths:
         '200': { description: ok }
         '403': { description: id does not match X-Tenant-ID or not a member }
         '404': { description: tenant not found }
+  /tenants/{id}/api-keys:
+    post:
+      summary: Create tenant-scoped API key (full key returned once)
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 60, description: leading/trailing whitespace is trimmed }
+      responses:
+        '201': { description: created }
+        '400': { description: invalid name }
+        '403': { description: id does not match X-Tenant-ID or not a member }
+    get:
+      summary: List API keys for tenant (no secrets; revoked keys are included with revoked_at)
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: ok }
+        '403': { description: id does not match X-Tenant-ID or not a member }
+  /tenants/{id}/api-keys/{keyId}:
+    delete:
+      summary: Revoke API key (idempotent)
+      parameters:
+        - $ref: '#/components/parameters/TenantID'
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: keyId
+          in: path
+          required: true
+          schema: { type: string, pattern: '^[0-9a-f]{32}$' }
+      responses:
+        '200': { description: revoked }
+        '403': { description: id does not match X-Tenant-ID or not a member }
+        '404': { description: API key not found (unknown id or owned by another tenant) }
   /executions:
     post:
       summary: Submit execution (persisted queued, published to JetStream)

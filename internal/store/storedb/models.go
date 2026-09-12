@@ -41,6 +41,14 @@ type Membership struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type RefreshToken struct {
+	Jti       pgtype.UUID        `json:"jti"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type Tenant struct {
 	ID        pgtype.UUID        `json:"id"`
 	Slug      string             `json:"slug"`

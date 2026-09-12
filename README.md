@@ -14,9 +14,10 @@ prototype now frozen and archived.
 
 ## Features
 
-- **Multi-tenant auth** — JWT access/refresh tokens; users belong to many
-  tenants via `memberships`. Every tenant route requires `Authorization:
-  Bearer <jwt>` plus `X-Tenant-ID`; `403` always means not-a-member.
+- **Multi-tenant auth** — JWT access/refresh tokens or tenant API keys
+  (`sk_live_...`); users belong to many tenants via `memberships`. Every
+  tenant route requires `Authorization: Bearer <token>` plus `X-Tenant-ID`;
+  `403` always means not-a-member.
 - **Submit and poll** — `POST /executions` persists the submission and
   enqueues it on NATS JetStream; `GET /executions/{id}` returns status,
   stdout, stderr, and exit code.
@@ -54,7 +55,8 @@ Client ──HTTP──▶ Gateway ──publish──▶ NATS JetStream ──c
 
 ## API
 
-All tenant routes require `Authorization: Bearer <jwt>` and `X-Tenant-ID`.
+All tenant routes require `Authorization: Bearer <token>` (JWT or tenant
+API key) and `X-Tenant-ID`.
 Full request/response shapes live in `api/openapi.yaml`.
 
 | Method & path | Description |
@@ -64,8 +66,14 @@ Full request/response shapes live in `api/openapi.yaml`.
 | `POST /auth/register` | Create user + personal tenant, returns token pair (`201`) |
 | `POST /auth/login` | Token pair by email or username (`200`) |
 | `POST /auth/refresh` | Rotated token pair, memberships re-resolved (`200`) |
+| `POST /auth/logout` | Revoke one refresh token, always `200` (idempotent) |
+| `POST /auth/logout-all` | Revoke all of the caller's refresh tokens (`200`) |
+| `GET /users/me` | Caller identity with tenant memberships (`200`) |
 | `POST /tenants` | Create org tenant, caller becomes owner (`201`) |
 | `GET /tenants/{id}` | Get tenant; id must equal `X-Tenant-ID` |
+| `POST /tenants/{id}/api-keys` | Mint a tenant API key, full key returned once (`201`) |
+| `GET /tenants/{id}/api-keys` | List key metadata, never secrets (`200`) |
+| `DELETE /tenants/{id}/api-keys/{keyId}` | Revoke a key (`200`; `404` when unknown) |
 | `POST /executions` | Submit code (`202 {id, status: queued}`; `502` if the queue is down) |
 | `GET /executions` | List executions for the tenant, newest first (paged) |
 | `GET /executions/{id}` | One execution with source, stdout, stderr, exit code (`404` across tenants) |

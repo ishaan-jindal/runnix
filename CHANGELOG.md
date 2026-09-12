@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Auth sessions: `POST /auth/logout` revokes one refresh token (idempotent
+  `200 {"status":"logged out"}` even for unknown tokens),
+  `POST /auth/logout-all` revokes every refresh token for the caller, and
+  `POST /auth/refresh` now rotates (old jti revoked, unknown/revoked/expired
+  jti returns `401`). Logout revokes refresh tokens only; 15-min access
+  tokens live out their window.
+- Tenant API keys: `POST /tenants/{id}/api-keys` (tenant-scoped, full key
+  returned once), `GET /tenants/{id}/api-keys` (no secrets, revoked keys
+  included with `revoked_at`), and
+  `DELETE /tenants/{id}/api-keys/{keyId}` (idempotent revoke; `404` unknown
+  or cross-tenant). Tenant routes accept `Bearer sk_live_...` keys via
+  `RequireAuthWithAPIKeys`.
+- Users: `GET /users/me` returns `{user: {id, username, email}, tenants}`
+  behind `RequireUser` (no `X-Tenant-ID` needed).
+
 ## [0.1.0] - 2026-09-12
 
 First working slice: authenticate, submit Python code, poll for the result —

@@ -52,9 +52,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	if cfg.Pool != nil {
 		authH := &handlers.AuthHandler{Pool: cfg.Pool, JWTSecret: cfg.JWTSecret}
+		usersH := handlers.NewUsersHandler(cfg.Pool)
 		r.Post("/auth/register", authH.Register)
 		r.Post("/auth/login", authH.Login)
 		r.Post("/auth/refresh", authH.Refresh)
+		r.Post("/auth/logout", authH.Logout)
+		r.With(middleware.RequireUser(cfg.JWTSecret)).Post("/auth/logout-all", authH.LogoutAll)
+		r.With(middleware.RequireUser(cfg.JWTSecret)).Get("/users/me", usersH.Me)
 
 		if cfg.MembershipChecker == nil {
 			queries := storedb.New(cfg.Pool)
@@ -64,9 +68,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Post("/auth/register", stub("register"))
 		r.Post("/auth/login", stub("login"))
 		r.Post("/auth/refresh", stub("refresh"))
+		r.Post("/auth/logout", stub("logout"))
+		r.Post("/auth/logout-all", stub("logout-all"))
+		r.Get("/users/me", stub("me"))
 	}
 
 	var createExec, listExec, getExec, createTenant, getTenant http.HandlerFunc
+	var createKey, listKeys, deleteKey http.HandlerFunc
 	if cfg.Pool != nil {
 		pub := cfg.NATS
 		if pub == nil {
@@ -79,14 +87,19 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			AllowPrivateWebhooks: cfg.WebhookAllowPrivate,
 		}
 		tenH := handlers.NewTenantsHandler(cfg.Pool)
+		apiH := handlers.NewAPIKeysHandler(cfg.Pool)
 		createExec, listExec, getExec = execH.Create, execH.List, execH.Get
 		createTenant, getTenant = tenH.Create, tenH.Get
+		createKey, listKeys, deleteKey = apiH.Create, apiH.List, apiH.Delete
 	} else {
 		createExec = unavailable("create execution")
 		listExec = unavailable("list executions")
 		getExec = unavailable("get execution")
 		createTenant = unavailable("create tenant")
 		getTenant = unavailable("get tenant")
+		createKey = unavailable("create API key")
+		listKeys = unavailable("list API keys")
+		deleteKey = unavailable("revoke API key")
 	}
 
 	// Tenant-scoped routes. Auth is enforced when JWTSecret is set.
@@ -96,13 +109,20 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			if check == nil {
 				check = func(_ context.Context, _, _ string) (string, bool) { return "", false }
 			}
-			r.Use(middleware.RequireAuth(cfg.JWTSecret, check))
+			var keys middleware.APIKeyChecker
+			if cfg.Pool != nil {
+				keys = handlers.NewAPIKeysHandler(cfg.Pool).CheckAPIKey
+			}
+			r.Use(middleware.RequireAuthWithAPIKeys(cfg.JWTSecret, check, keys))
 		}
 		r.Post("/executions", createExec)
 		r.Get("/executions", listExec)
 		r.Get("/executions/{id}", getExec)
 		r.Post("/tenants", createTenant)
 		r.Get("/tenants/{id}", getTenant)
+		r.Post("/tenants/{id}/api-keys", createKey)
+		r.Get("/tenants/{id}/api-keys", listKeys)
+		r.Delete("/tenants/{id}/api-keys/{keyId}", deleteKey)
 	})
 
 	return r

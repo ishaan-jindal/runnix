@@ -1,16 +1,19 @@
 // Package auth provides JWT, API-key, and password helpers.
 // Stateless helpers only: persistence lives in the HTTP handlers.
-// Still deferred: logout/revocation and the API-key auth path.
+// Refresh-token revocation lives in the store/handler layer.
 package auth
 
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -40,6 +43,12 @@ func CheckPassword(hash, password string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 }
 
+// AccessAudience marks tokens issued for API authorization.
+const AccessAudience = "runnix-access"
+
+// RefreshAudience marks tokens issued for session renewal.
+const RefreshAudience = "runnix-refresh"
+
 // SignAccessToken issues a 15-minute access token carrying tenant memberships.
 func SignAccessToken(secret, userID string, tenants []TenantClaim) (string, error) {
 	now := time.Now()
@@ -47,6 +56,7 @@ func SignAccessToken(secret, userID string, tenants []TenantClaim) (string, erro
 		TenantClaims: tenants,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID,
+			Audience:  jwt.ClaimStrings{AccessAudience},
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(15 * time.Minute)),
 		},
@@ -55,38 +65,48 @@ func SignAccessToken(secret, userID string, tenants []TenantClaim) (string, erro
 }
 
 // SignRefreshToken issues a 7-day refresh token (no tenant claims; re-resolved on refresh).
-func SignRefreshToken(secret, userID string) (string, error) {
+func SignRefreshToken(secret, userID string) (string, string, error) {
 	now := time.Now()
+	jti := uuid.NewString()
 	claims := jwt.RegisteredClaims{
 		Subject:   userID,
+		Audience:  jwt.ClaimStrings{RefreshAudience},
+		ID:        jti,
 		IssuedAt:  jwt.NewNumericDate(now),
 		ExpiresAt: jwt.NewNumericDate(now.Add(7 * 24 * time.Hour)),
 	}
-	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
+	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
+	if err != nil {
+		return "", "", err
+	}
+	return tok, jti, nil
 }
 
 // ParseAccessToken validates and returns access claims.
 func ParseAccessToken(secret, token string) (*Claims, error) {
 	claims := &Claims{}
-	_, err := jwt.ParseWithClaims(token, claims, hmacKeyFunc(secret))
+	tok, err := jwt.ParseWithClaims(token, claims, hmacKeyFunc(secret), jwt.WithAudience(AccessAudience))
 	if err != nil {
 		return nil, err
+	}
+	if !tok.Valid {
+		return nil, fmt.Errorf("invalid access token")
 	}
 	return claims, nil
 }
 
-// ParseRefreshToken validates a refresh token and returns the user id.
+// ParseRefreshToken validates a refresh token and returns the user id and jti.
 // Refresh tokens carry no tenant claims; memberships are re-resolved on refresh.
-func ParseRefreshToken(secret, token string) (string, error) {
+func ParseRefreshToken(secret, token string) (string, string, error) {
 	claims := &jwt.RegisteredClaims{}
-	tok, err := jwt.ParseWithClaims(token, claims, hmacKeyFunc(secret))
+	tok, err := jwt.ParseWithClaims(token, claims, hmacKeyFunc(secret), jwt.WithAudience(RefreshAudience))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	if !tok.Valid || claims.Subject == "" {
-		return "", fmt.Errorf("invalid refresh token")
+	if !tok.Valid || claims.Subject == "" || claims.ID == "" {
+		return "", "", fmt.Errorf("invalid refresh token")
 	}
-	return claims.Subject, nil
+	return claims.Subject, claims.ID, nil
 }
 
 func hmacKeyFunc(secret string) jwt.Keyfunc {
@@ -100,13 +120,16 @@ func hmacKeyFunc(secret string) jwt.Keyfunc {
 
 // GenerateAPIKey returns (keyID, secret, fullKey). Only SHA-256 of the secret is stored.
 func GenerateAPIKey() (keyID, secret, fullKey string, err error) {
+	idBytes := make([]byte, 16)
+	if _, err = rand.Read(idBytes); err != nil {
+		return "", "", "", err
+	}
+	keyID = hex.EncodeToString(idBytes)
 	raw := make([]byte, 32)
 	if _, err = rand.Read(raw); err != nil {
 		return "", "", "", err
 	}
 	secret = hex.EncodeToString(raw)
-	sum := sha256.Sum256([]byte(secret))
-	keyID = hex.EncodeToString(sum[:8])
 	fullKey = fmt.Sprintf("sk_live_%s.%s", keyID, secret)
 	return keyID, secret, fullKey, nil
 }
@@ -115,4 +138,27 @@ func GenerateAPIKey() (keyID, secret, fullKey string, err error) {
 func HashAPIKeySecret(secret string) string {
 	sum := sha256.Sum256([]byte(secret))
 	return hex.EncodeToString(sum[:])
+}
+
+// ParseAPIKey parses sk_live_<keyID>.<secret> into its parts.
+func ParseAPIKey(full string) (string, string, error) {
+	const prefix = "sk_live_"
+	if !strings.HasPrefix(full, prefix) {
+		return "", "", fmt.Errorf("invalid API key format")
+	}
+	rest := strings.TrimPrefix(full, prefix)
+	idx := strings.Index(rest, ".")
+	if idx < 0 {
+		return "", "", fmt.Errorf("invalid API key format")
+	}
+	keyID, secret := rest[:idx], rest[idx+1:]
+	if keyID == "" || secret == "" {
+		return "", "", fmt.Errorf("invalid API key format")
+	}
+	return keyID, secret, nil
+}
+
+// EqualAPIKeyHash compares two API-key hashes in constant time.
+func EqualAPIKeyHash(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }

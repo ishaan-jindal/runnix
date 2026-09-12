@@ -8,13 +8,16 @@ import (
 	"net/http"
 	"net/mail"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/ishaan-jindal/runnix/internal/auth"
+	"github.com/ishaan-jindal/runnix/internal/http/middleware"
 	"github.com/ishaan-jindal/runnix/internal/store"
 	"github.com/ishaan-jindal/runnix/internal/store/storedb"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -37,6 +40,10 @@ type loginRequest struct {
 }
 
 type refreshRequest struct {
+	RefreshToken string `json:"refreshToken"`
+}
+
+type logoutRequest struct {
 	RefreshToken string `json:"refreshToken"`
 }
 
@@ -133,7 +140,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeSession(w, http.StatusCreated, store.PgToString(user.ID), user.Username, user.Email)
+	h.writeSession(ctx, w, http.StatusCreated, store.PgToString(user.ID), user.Username, user.Email)
 }
 
 // Login verifies credentials and issues tokens.
@@ -175,11 +182,15 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeSession(w, http.StatusOK, store.PgToString(user.ID), user.Username, user.Email)
+	h.writeSession(ctx, w, http.StatusOK, store.PgToString(user.ID), user.Username, user.Email)
 }
 
 // Refresh validates a refresh token and issues a new token pair with
-// freshly resolved memberships.
+// freshly resolved memberships. Rotation is atomic: one transaction revokes
+// the presenting jti and inserts the successor, so concurrent reuse cannot
+// double-mint and a logout landing mid-flight cannot be undone. The
+// presenting jti must exist, be unrevoked, unexpired, and owned by the
+// token subject; otherwise 401.
 //
 //	POST /auth/refresh {refreshToken} → 200
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
@@ -191,19 +202,36 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "refreshToken is required")
 		return
 	}
-	userID, err := auth.ParseRefreshToken(h.JWTSecret, req.RefreshToken)
+	// Tokens issued before the jti claim existed carry no jti, so
+	// ParseRefreshToken rejects them here → 401 (forced re-login).
+	userID, jti, err := auth.ParseRefreshToken(h.JWTSecret, req.RefreshToken)
 	if err != nil {
 		writeErr(w, http.StatusUnauthorized, "invalid refresh token")
 		return
 	}
 
 	ctx := r.Context()
+	jtiPg, err := store.ParsePg(jti)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, "invalid refresh token")
+		return
+	}
 	uid, err := store.ParsePg(userID)
 	if err != nil {
 		writeErr(w, http.StatusUnauthorized, "invalid refresh token")
 		return
 	}
-	user, err := storedb.New(h.Pool).GetUserByID(ctx, uid)
+
+	tx, err := h.Pool.Begin(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not refresh")
+		return
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := storedb.New(tx)
+
+	var owner pgtype.UUID
+	err = tx.QueryRow(ctx, `UPDATE refresh_tokens SET revoked_at=now() WHERE jti=$1 AND user_id=$2 AND revoked_at IS NULL AND expires_at>now() RETURNING user_id`, jtiPg, uid).Scan(&owner)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeErr(w, http.StatusUnauthorized, "invalid refresh token")
@@ -212,23 +240,109 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "could not refresh")
 		return
 	}
-
-	h.writeSession(w, http.StatusOK, store.PgToString(user.ID), user.Username, user.Email)
-}
-
-// writeSession resolves memberships, signs a token pair, and writes the envelope.
-func (h *AuthHandler) writeSession(w http.ResponseWriter, code int, userID, username, email string) {
-	// Memberships are resolved per request so responses never go stale.
-	// A brand-new user always has exactly one (owner of the personal tenant).
-	uid, err := store.ParsePg(userID)
+	user, err := qtx.GetUserByID(ctx, uid)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "could not create session")
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeErr(w, http.StatusUnauthorized, "invalid refresh token")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "could not refresh")
 		return
 	}
-	rows, err := storedb.New(h.Pool).ListTenantMemberships(context.Background(), uid)
+	tenants, claims, err := resolveMemberships(ctx, qtx, uid)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "could not create session")
+		writeErr(w, http.StatusInternalServerError, "could not refresh")
 		return
+	}
+
+	access, err := auth.SignAccessToken(h.JWTSecret, userID, claims)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not refresh")
+		return
+	}
+	refresh, newJTI, err := auth.SignRefreshToken(h.JWTSecret, userID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not refresh")
+		return
+	}
+	newJtiPg, err := store.ParsePg(newJTI)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not refresh")
+		return
+	}
+	if _, err := qtx.CreateRefreshToken(ctx, storedb.CreateRefreshTokenParams{
+		Jti:       newJtiPg,
+		UserID:    uid,
+		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(7 * 24 * time.Hour), Valid: true},
+	}); err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not refresh")
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not refresh")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"user":         userJSON{ID: store.PgToString(user.ID), Username: user.Username, Email: user.Email},
+		"tenants":      tenants,
+		"accessToken":  access,
+		"refreshToken": refresh,
+	})
+}
+
+// Logout revokes a single refresh token. Always 200, even when the body is
+// empty or malformed JSON, so the endpoint is not a token oracle.
+//
+//	POST /auth/logout {refreshToken} → 200 {"status":"logged out"}
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	var req logoutRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.RefreshToken != "" {
+		if _, jti, err := auth.ParseRefreshToken(h.JWTSecret, req.RefreshToken); err == nil {
+			if jtiPg, perr := store.ParsePg(jti); perr == nil {
+				_ = storedb.New(h.Pool).RevokeRefreshToken(r.Context(), jtiPg)
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "logged out"})
+}
+
+// LogoutAll revokes every refresh token for the caller. The route sits
+// behind RequireUser so the identity comes from context.
+//
+//	POST /auth/logout-all → 200 {"status":"logged out"}
+func (h *AuthHandler) LogoutAll(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.UserIDFrom(r.Context())
+	if userID == "" {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	uid, err := store.ParsePg(userID)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, "invalid user identity")
+		return
+	}
+	if _, err := storedb.New(h.Pool).RevokeAllRefreshTokens(r.Context(), uid); err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not log out")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "logged out"})
+}
+
+// membershipLister is the storedb surface membership resolution needs.
+type membershipLister interface {
+	ListTenantMemberships(ctx context.Context, userID pgtype.UUID) ([]storedb.ListTenantMembershipsRow, error)
+}
+
+// resolveMemberships lists a user's tenants for sessions and /users/me.
+func resolveMemberships(ctx context.Context, s membershipLister, uid pgtype.UUID) ([]tenantJSON, []auth.TenantClaim, error) {
+	rows, err := s.ListTenantMemberships(ctx, uid)
+	if err != nil {
+		return nil, nil, err
 	}
 	tenants := make([]tenantJSON, 0, len(rows))
 	claims := make([]auth.TenantClaim, 0, len(rows))
@@ -237,14 +351,45 @@ func (h *AuthHandler) writeSession(w http.ResponseWriter, code int, userID, user
 		tenants = append(tenants, tenantJSON{ID: id, Slug: m.Slug, Role: m.Role})
 		claims = append(claims, auth.TenantClaim{ID: id, Role: m.Role})
 	}
+	return tenants, claims, nil
+}
+
+// writeSession resolves memberships, signs a token pair, persists the new
+// refresh row (7-day expiry), and writes the envelope.
+func (h *AuthHandler) writeSession(ctx context.Context, w http.ResponseWriter, code int, userID, username, email string) {
+	// Memberships are resolved per request so responses never go stale.
+	// A brand-new user always has exactly one (owner of the personal tenant).
+	uid, err := store.ParsePg(userID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not create session")
+		return
+	}
+	tenants, claims, err := resolveMemberships(ctx, storedb.New(h.Pool), uid)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not create session")
+		return
+	}
 
 	access, err := auth.SignAccessToken(h.JWTSecret, userID, claims)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not create session")
 		return
 	}
-	refresh, err := auth.SignRefreshToken(h.JWTSecret, userID)
+	refresh, jti, err := auth.SignRefreshToken(h.JWTSecret, userID)
 	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not create session")
+		return
+	}
+	jtiPg, err := store.ParsePg(jti)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not create session")
+		return
+	}
+	if _, err := storedb.New(h.Pool).CreateRefreshToken(ctx, storedb.CreateRefreshTokenParams{
+		Jti:       jtiPg,
+		UserID:    uid,
+		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(7 * 24 * time.Hour), Valid: true},
+	}); err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not create session")
 		return
 	}

@@ -114,3 +114,86 @@ func RequireAuth(secret string, check MembershipChecker) func(http.Handler) http
 		})
 	}
 }
+
+// RequireUser validates Bearer JWT for non-tenant routes.
+// 401 = missing/invalid token. Sets only the user-id context key.
+func RequireUser(secret string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h := r.Header.Get("Authorization")
+			if !strings.HasPrefix(h, "Bearer ") {
+				writeErr(w, http.StatusUnauthorized, "missing bearer token")
+				return
+			}
+			claims, err := auth.ParseAccessToken(secret, strings.TrimPrefix(h, "Bearer "))
+			if err != nil {
+				writeErr(w, http.StatusUnauthorized, "invalid token")
+				return
+			}
+			ctx := context.WithValue(r.Context(), ctxUserKey, claims.Subject)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// APIKeyChecker resolves a key id + expected secret hash to its owner user
+// and tenant. The handler layer supplies the storedb-backed implementation.
+type APIKeyChecker func(ctx context.Context, keyID, secretHash string) (userID, tenantID string, ok bool)
+
+// RequireAuthWithAPIKeys accepts either a Bearer JWT (delegated to
+// RequireAuth unchanged) or a Bearer API key (sk_live_<id>.<secret>).
+// Posture: any tenant member may mint and use keys (no role gating); the
+// role context key follows live membership and is kept for future use.
+// API-key path: 401 = malformed key or unknown/revoked/wrong secret
+// (indistinguishable). 400 = missing tenant. 403 = key issued for a
+// different tenant, or the owner is no longer a member (resolved through
+// the live membership check so a removed user loses key access immediately).
+func RequireAuthWithAPIKeys(secret string, check MembershipChecker, keys APIKeyChecker) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h := r.Header.Get("Authorization")
+			raw := ""
+			if strings.HasPrefix(h, "Bearer ") {
+				raw = strings.TrimPrefix(h, "Bearer ")
+			}
+			if !strings.HasPrefix(raw, "sk_live_") {
+				RequireAuth(secret, check)(next).ServeHTTP(w, r)
+				return
+			}
+			keyID, keySecret, err := auth.ParseAPIKey(raw)
+			if err != nil {
+				writeErr(w, http.StatusUnauthorized, "invalid API key")
+				return
+			}
+			userID, keyTenantID, ok := "", "", false
+			if keys != nil {
+				userID, keyTenantID, ok = keys(r.Context(), keyID, auth.HashAPIKeySecret(keySecret))
+			}
+			if !ok {
+				writeErr(w, http.StatusUnauthorized, "invalid API key")
+				return
+			}
+			tenantID := r.Header.Get("X-Tenant-ID")
+			if tenantID == "" {
+				writeErr(w, http.StatusBadRequest, "X-Tenant-ID is required")
+				return
+			}
+			if keyTenantID != tenantID {
+				writeErr(w, http.StatusForbidden, "API key is not valid for this tenant")
+				return
+			}
+			role, ok := "", false
+			if check != nil {
+				role, ok = check(r.Context(), userID, tenantID)
+			}
+			if !ok {
+				writeErr(w, http.StatusForbidden, "not a member of tenant")
+				return
+			}
+			ctx := context.WithValue(r.Context(), ctxUserKey, userID)
+			ctx = context.WithValue(ctx, ctxTenantKey, tenantID)
+			ctx = context.WithValue(ctx, ctxRoleKey, role)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}

@@ -75,6 +75,11 @@ func main() {
 		routerCfg.NATS = natsClient
 	}
 	routerCfg.ReadyCheck = readiness(db, natsClient)
+	if db != nil && cfg.JWTSecret == "" {
+		// Development only (config refuses to boot without a secret
+		// elsewhere): tenant routes serve without authentication.
+		log.Print("gateway: WARNING: JWT_SECRET is empty — tenant routes are unauthenticated")
+	}
 	handler := gwhttp.NewRouter(routerCfg)
 	srv := &http.Server{Addr: cfg.Addr(), Handler: handler}
 
