@@ -4,7 +4,7 @@ Multi-tenant sandboxed code execution. Clients authenticate, submit source
 code, and poll (or receive a webhook) for the result. Every execution runs
 isolated, resource-bounded, and auditable.
 
-> **Pre-release — v0.1.0.** The API and sandbox posture work end to end on
+> **v0.1.0.** The API and sandbox posture work end to end on
 > Docker Compose. Kubernetes execution (Job-per-execution, namespaces,
 > quotas, Helm) is planned for a later slice.
 
