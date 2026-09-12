@@ -1,0 +1,28 @@
+# Shared edge proxy (project: runnix-caddy). Only member needing published ports.
+# Prereq (once per host): docker network create runnix-public
+# Up: docker compose -p runnix-caddy -f compose.caddy.yaml up -d
+# Domains default below; override via environment (API_DOMAIN / DEV_DOMAIN).
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      API_DOMAIN: ${API_DOMAIN:-api.runnix.xyz}
+      DEV_DOMAIN: ${DEV_DOMAIN:-dev.runnix.xyz}
+    ports: ["80:80", "443:443"]
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    networks: [runnix-public]
+    mem_limit: 64m
+    restart: unless-stopped
+    logging: { driver: json-file, options: { max-size: "10m" } }
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  runnix-public:
+    external: true

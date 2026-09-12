@@ -1,0 +1,13 @@
+# Caddy provisions/renews certs automatically; both DNS names need A-records.
+
+{$API_DOMAIN} {
+	encode gzip
+	handle /metrics* { respond "not found" 404 }
+	handle { reverse_proxy prod-gateway:4000 }
+}
+
+{$DEV_DOMAIN} {
+	encode gzip
+	handle /metrics* { respond "not found" 404 }
+	handle { reverse_proxy dev-gateway:4000 }
+}

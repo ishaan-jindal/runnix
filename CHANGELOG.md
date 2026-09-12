@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.1] - 2026-09-12
 
 ### Added
 
@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RequireAuthWithAPIKeys`.
 - Users: `GET /users/me` returns `{user: {id, username, email}, tenants}`
   behind `RequireUser` (no `X-Tenant-ID` needed).
+- Deployment: GHCR images (`runnix-gateway`, `runnix-dispatcher`,
+  `runnix-runner-python`, version plus `latest` on releases, `edge` on
+  main), Caddy with automatic TLS, and prod/dev compose stacks on the
+  `runnix-public` network (see `deploy/README.md`). The dev stack runs
+  Watchtower (scope `runnix-dev`) to auto-update gateway/dispatcher on new
+  `edge` images; prod pins versions and updates by hand.
 
 ## [0.1.0] - 2026-09-12
 

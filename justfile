@@ -34,3 +34,9 @@ compose-down:
 
 migrate-up:
     go run ./cmd/gateway -migrate-only
+
+# Render-check the hosted compose files without starting anything.
+deploy-check:
+    IMAGE_TAG=test POSTGRES_PASSWORD=test JWT_SECRET=test WEBHOOK_SIGNING_SECRET=test docker compose -f deploy/compose.caddy.yaml config -q
+    IMAGE_TAG=test POSTGRES_PASSWORD=test JWT_SECRET=test WEBHOOK_SIGNING_SECRET=test docker compose -f deploy/compose.prod.yaml config -q
+    IMAGE_TAG=test POSTGRES_PASSWORD=test JWT_SECRET=test WEBHOOK_SIGNING_SECRET=test docker compose -f deploy/compose.dev.yaml config -q

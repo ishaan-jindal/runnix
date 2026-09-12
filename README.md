@@ -112,6 +112,11 @@ curl -s -X POST localhost:4000/executions -H "X-Tenant-ID: $TENANT" \
 
 To stop everything (drops the database volume): `just compose-down`.
 
+## Deployment
+
+Hosted dev/prod run on one VM behind Caddy; see `deploy/README.md`.
+Local laptop path stays `just compose-up` (`deploy/compose.yaml`).
+
 ## Configuration
 
 | Variable | Default | Notes |

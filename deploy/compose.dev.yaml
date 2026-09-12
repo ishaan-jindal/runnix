@@ -1,0 +1,96 @@
+# Hosted dev stack (project: runnix-dev). Same shape as compose.prod.yaml.
+# Prereq (once per host): docker network create runnix-public
+# Up: docker compose -p runnix-dev --env-file dev.env -f compose.dev.yaml up -d
+# ENV is production here too: fail-closed JWT behavior on a hosted box.
+
+services:
+  postgres:
+    image: postgres:16
+    command: postgres -c shared_buffers=32MB -c max_connections=20
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-runnix}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-runnix}
+    volumes: [dev_pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "PGPASSWORD=$$POSTGRES_PASSWORD pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 192m
+    restart: unless-stopped
+
+  nats:
+    image: nats:2
+    command: ["-js", "-sd", "/data/jetstream"]
+    volumes: [dev_natsdata:/data]
+    mem_limit: 64m
+    restart: unless-stopped
+
+  gateway:
+    image: ghcr.io/ishaan-jindal/runnix-gateway:${IMAGE_TAG:-edge}
+    container_name: dev-gateway
+    labels:
+      # Watchtower scope: auto-updated on new edge images (dev only).
+      com.centurylinklabs.watchtower.scope: runnix-dev
+    environment:
+      PORT: "4000"
+      ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER:-runnix}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-runnix}?sslmode=disable
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      WEBHOOK_SIGNING_SECRET: ${WEBHOOK_SIGNING_SECRET:-}
+    networks: [default, runnix-public]
+    depends_on:
+      postgres: { condition: service_healthy }
+      nats: { condition: service_started }
+    mem_limit: 64m
+    restart: unless-stopped
+    logging: { driver: json-file, options: { max-size: "10m" } }
+
+  dispatcher:
+    image: ghcr.io/ishaan-jindal/runnix-dispatcher:${IMAGE_TAG:-edge}
+    container_name: dev-dispatcher
+    labels:
+      com.centurylinklabs.watchtower.scope: runnix-dev
+    environment:
+      ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER:-runnix}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-runnix}?sslmode=disable
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      EXEC_WORKERS: "1"
+      RUNNER_IMAGE: ghcr.io/ishaan-jindal/runnix-runner-python:${IMAGE_TAG:-edge}
+      RUNNER_RUNTIME: runsc
+      WEBHOOK_SIGNING_SECRET: ${WEBHOOK_SIGNING_SECRET:-}
+      REAP_INTERVAL: 1m
+      REAP_STALE_AFTER: 5m
+    # Matches the current dev posture (host docker socket) until Job-per-execution lands.
+    user: root
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres: { condition: service_healthy }
+      nats: { condition: service_started }
+    mem_limit: 256m
+    restart: unless-stopped
+    logging: { driver: json-file, options: { max-size: "10m" } }
+
+  # Tracks :edge and restarts gateway/dispatcher on new images (dev only;
+  # prod pins versions and updates by hand). Scoped so postgres/nats/caddy
+  # and prod are never touched. No scope label on itself: update by hand.
+  watchtower:
+    image: nickfedor/watchtower:latest
+    command: --scope runnix-dev --interval 300 --cleanup --stop-timeout 30s
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    mem_limit: 64m
+    restart: unless-stopped
+    logging: { driver: json-file, options: { max-size: "10m" } }
+
+volumes:
+  dev_pgdata:
+  dev_natsdata:
+
+networks:
+  runnix-public:
+    external: true
