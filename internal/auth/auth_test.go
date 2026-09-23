@@ -102,7 +102,7 @@ func TestAPIKeyFormat(t *testing.T) {
 		t.Fatalf("bad key id length: got %d want 32", len(keyID))
 	}
 	for _, c := range keyID {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			t.Fatalf("key id not lowercase hex: %q", keyID)
 		}
 	}
