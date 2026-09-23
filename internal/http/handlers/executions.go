@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/ishaan-jindal/runnix/internal/executions"
 	"github.com/ishaan-jindal/runnix/internal/http/middleware"
+	"github.com/ishaan-jindal/runnix/internal/quotas"
 	"github.com/ishaan-jindal/runnix/internal/store"
 	"github.com/ishaan-jindal/runnix/internal/store/storedb"
 	"github.com/ishaan-jindal/runnix/internal/webhooks"
@@ -49,6 +50,10 @@ type ExecutionsHandler struct {
 	// SSRF blocklist (development/tests only).
 	WebhooksEnabled      bool
 	AllowPrivateWebhooks bool
+	// Quota gates submits per tenant. Nil (or QuotasEnabled=false) skips
+	// checks, preserving the pre-quota path for tests and opted-out deploys.
+	Quota         quotas.Checker
+	QuotasEnabled bool
 }
 
 type createExecutionRequest struct {
@@ -88,7 +93,7 @@ func requestTenant(r *http.Request) string {
 // Create persists an execution as queued and publishes it to the submit
 // stream.
 //
-//	POST /executions -> 202 {id, status: queued}; 400, 403, 502.
+//	POST /executions -> 202 {id, status: queued}; 400, 403, 429, 502.
 func (h *ExecutionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req createExecutionRequest
 	if !decodeBody(w, r, &req) {
@@ -138,22 +143,44 @@ func (h *ExecutionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid X-Tenant-ID")
 		return
 	}
-
 	webhook := pgtype.Text{}
 	if req.WebhookURL != "" {
 		webhook = pgtype.Text{String: req.WebhookURL, Valid: true}
 	}
-	row, err := h.Store.CreateExecution(r.Context(), storedb.CreateExecutionParams{
+	params := storedb.CreateExecutionParams{
 		TenantID:   tenantUUID,
 		Language:   req.Language,
 		Source:     req.Source,
 		Stdin:      req.Stdin,
 		TimeoutS:   int32(req.TimeoutS),
 		WebhookUrl: webhook,
-	})
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "could not create execution")
-		return
+	}
+	var row storedb.CreateExecutionRow
+	if h.QuotasEnabled && h.Quota != nil {
+		qrow, decision, qerr := h.Quota.CheckAndCreate(r.Context(), tenant, params)
+		if qerr != nil {
+			// Fail open: a down quota path must not 500 all submits.
+			// Availability wins over strictness for v1.
+			var ierr error
+			row, ierr = h.Store.CreateExecution(r.Context(), params)
+			if ierr != nil {
+				writeErr(w, http.StatusInternalServerError, "could not create execution")
+				return
+			}
+		} else if !decision.Allowed {
+			w.Header().Set("Retry-After", strconv.Itoa(decision.RetryAfterSec))
+			writeErr(w, http.StatusTooManyRequests, decision.Reason)
+			return
+		} else {
+			row = qrow
+		}
+	} else {
+		var ierr error
+		row, ierr = h.Store.CreateExecution(r.Context(), params)
+		if ierr != nil {
+			writeErr(w, http.StatusInternalServerError, "could not create execution")
+			return
+		}
 	}
 	id := store.PgToString(row.ID)
 

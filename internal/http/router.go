@@ -12,6 +12,7 @@ import (
 	"github.com/ishaan-jindal/runnix/internal/http/handlers"
 	"github.com/ishaan-jindal/runnix/internal/http/middleware"
 	rnats "github.com/ishaan-jindal/runnix/internal/nats"
+	"github.com/ishaan-jindal/runnix/internal/quotas"
 	"github.com/ishaan-jindal/runnix/internal/store/storedb"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -31,6 +32,10 @@ type RouterConfig struct {
 	WebhookSecret string
 	// WebhookAllowPrivate relaxes the webhook SSRF blocklist (dev/tests).
 	WebhookAllowPrivate bool
+	// QuotasEnabled wires a per-tenant submit-quota checker into the
+	// executions handler when Pool is set. Off by default for zero-value
+	// configs (unit tests); the gateway sets it from QUOTAS_ENABLED.
+	QuotasEnabled bool
 	// ReadyCheck, when set, backs /readyz with live dependency checks.
 	ReadyCheck func(ctx context.Context) error
 }
@@ -85,6 +90,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			Publisher:            pub,
 			WebhooksEnabled:      cfg.WebhookSecret != "",
 			AllowPrivateWebhooks: cfg.WebhookAllowPrivate,
+			QuotasEnabled:        cfg.QuotasEnabled,
+		}
+		if cfg.QuotasEnabled {
+			execH.Quota = quotas.NewPostgresChecker(cfg.Pool, nil)
 		}
 		tenH := handlers.NewTenantsHandler(cfg.Pool)
 		apiH := handlers.NewAPIKeysHandler(cfg.Pool)

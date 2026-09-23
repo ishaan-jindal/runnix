@@ -209,6 +209,12 @@ paths:
         '202': { description: 'queued; body {id, status, created_at}' }
         '400': { description: invalid input }
         '403': { description: tenant_id does not match X-Tenant-ID }
+        '429':
+          description: 'tenant submit quota exceeded (hourly or active limit); honor the Retry-After response header (seconds)'
+          headers:
+            Retry-After:
+              description: seconds to wait before retrying
+              schema: { type: integer, minimum: 1 }
         '502': { description: submit queue unavailable; execution marked failed }
         '503': { description: webhook_url set but webhooks are disabled (no signing secret) }
     get:

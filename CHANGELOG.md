@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Per-tenant submit quotas: `POST /executions` enforces a trailing-hour
+  submit cap plus a concurrent (queued + running) execution cap per tier
+  (free 60/hr + 2 active, starter 600/hr + 5, professional 6000/hr + 20,
+  enterprise unlimited). Over-limit submits return `429` with a
+  `Retry-After` header (seconds). Checks are serialized per tenant via a
+  Postgres advisory lock and fail open when the quota path errors.
+  Disable with `QUOTAS_ENABLED=false`.
+
 ## [0.1.1] - 2026-09-12
 
 ### Added
