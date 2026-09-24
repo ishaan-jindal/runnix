@@ -35,7 +35,7 @@ func TestLimitsFor(t *testing.T) {
 }
 
 func TestDecide(t *testing.T) {
-	free := TierLimits["free"]
+	free := tierLimits["free"]
 	for name, tc := range map[string]struct {
 		limits   Limits
 		hourly   int64
@@ -48,9 +48,9 @@ func TestDecide(t *testing.T) {
 		"free hourly over limit":                {free, 1000, 0, false, 60},
 		"free active at limit":                  {free, 0, 2, false, 30},
 		"hourly wins over active":               {free, 60, 2, false, 60},
-		"enterprise ignores counts":             {TierLimits["enterprise"], 1 << 30, 1 << 30, true, 0},
-		"starter hourly retry scales":           {TierLimits["starter"], 600, 0, false, 6},
-		"professional hourly retry floors at 1": {TierLimits["professional"], 6000, 0, false, 1},
+		"enterprise ignores counts":             {tierLimits["enterprise"], 1 << 30, 1 << 30, true, 0},
+		"starter hourly retry scales":           {tierLimits["starter"], 600, 0, false, 6},
+		"professional hourly retry floors at 1": {tierLimits["professional"], 6000, 0, false, 1},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got := decide(tc.limits, tc.hourly, tc.active)
@@ -69,12 +69,14 @@ func TestDecide(t *testing.T) {
 
 // fakeQuerier pins tier/counts and records the window start checkCounts used.
 type fakeQuerier struct {
-	tier     string
-	hourly   int64
-	active   int64
-	tierErr  error
-	since    time.Time
-	sinceSet bool
+	tier        string
+	hourly      int64
+	active      int64
+	tierErr     error
+	since       time.Time
+	sinceSet    bool
+	hourlyCalls int
+	activeCalls int
 }
 
 func (f *fakeQuerier) GetTenant(_ context.Context, _ pgtype.UUID) (storedb.Tenant, error) {
@@ -83,10 +85,12 @@ func (f *fakeQuerier) GetTenant(_ context.Context, _ pgtype.UUID) (storedb.Tenan
 
 func (f *fakeQuerier) CountExecutionsSince(_ context.Context, arg storedb.CountExecutionsSinceParams) (int64, error) {
 	f.since, f.sinceSet = arg.CreatedAt.Time, true
+	f.hourlyCalls++
 	return f.hourly, nil
 }
 
 func (f *fakeQuerier) CountActiveExecutions(_ context.Context, _ pgtype.UUID) (int64, error) {
+	f.activeCalls++
 	return f.active, nil
 }
 
@@ -129,8 +133,6 @@ func TestCheckCountsDenies(t *testing.T) {
 }
 
 func TestCheckCountsSkipsCountsForEnterprise(t *testing.T) {
-	// Enterprise never reaches the count queries; a tier lookup failure is
-	// the only error path.
 	fq := &fakeQuerier{tier: "enterprise", hourly: 1 << 40, active: 1 << 40}
 	d, err := checkCounts(context.Background(), fq, pgtype.UUID{}, time.Now())
 	if err != nil {
@@ -138,6 +140,9 @@ func TestCheckCountsSkipsCountsForEnterprise(t *testing.T) {
 	}
 	if !d.Allowed {
 		t.Fatalf("enterprise should always allow, got %+v", d)
+	}
+	if fq.hourlyCalls != 0 || fq.activeCalls != 0 {
+		t.Fatalf("enterprise skipped counts, got hourly=%d active=%d", fq.hourlyCalls, fq.activeCalls)
 	}
 }
 

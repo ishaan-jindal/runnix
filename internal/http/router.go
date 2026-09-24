@@ -90,7 +90,6 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			Publisher:            pub,
 			WebhooksEnabled:      cfg.WebhookSecret != "",
 			AllowPrivateWebhooks: cfg.WebhookAllowPrivate,
-			QuotasEnabled:        cfg.QuotasEnabled,
 		}
 		if cfg.QuotasEnabled {
 			execH.Quota = quotas.NewPostgresChecker(cfg.Pool, nil)

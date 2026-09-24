@@ -3,6 +3,7 @@ package quotas
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -58,7 +59,6 @@ func testQuotaPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// seedTenant creates a tenant at the given tier and returns its string id.
 func seedTenant(t *testing.T, pool *pgxpool.Pool, tier string) string {
 	t.Helper()
 	id := uuid.New()
@@ -122,14 +122,13 @@ func TestQuotaConcurrency(t *testing.T) {
 	close(start)
 	wg.Wait()
 
-	if got := admitted.Load(); got != int64(TierLimits["free"].MaxActive) {
-		t.Fatalf("admitted = %d, want exactly the active limit %d", got, TierLimits["free"].MaxActive)
+	if got := admitted.Load(); got != int64(tierLimits["free"].MaxActive) {
+		t.Fatalf("admitted = %d, want exactly the active limit %d", got, tierLimits["free"].MaxActive)
 	}
 	if got := admitted.Load() + denied.Load(); got != workers {
 		t.Fatalf("admitted + denied = %d, want %d racers accounted for", got, workers)
 	}
 
-	// The gateway read path now denies with the active reason.
 	d, err := checker.CheckSubmit(context.Background(), tenant)
 	if err != nil {
 		t.Fatal(err)
@@ -175,7 +174,7 @@ func finishExecution(t *testing.T, pool *pgxpool.Pool, tenant string) {
 func TestQuotaHourlyLimit(t *testing.T) {
 	pool := testQuotaPool(t)
 	tenant := seedTenant(t, pool, "free")
-	for i := 0; i < TierLimits["free"].SubmitsPerHour; i++ {
+	for i := 0; i < tierLimits["free"].SubmitsPerHour; i++ {
 		finishExecution(t, pool, tenant)
 	}
 	d, err := NewPostgresChecker(pool, nil).CheckSubmit(context.Background(), tenant)
@@ -187,7 +186,6 @@ func TestQuotaHourlyLimit(t *testing.T) {
 	}
 }
 
-// TestQuotaEnterpriseUnlimited allows submits regardless of existing rows.
 func TestQuotaEnterpriseUnlimited(t *testing.T) {
 	pool := testQuotaPool(t)
 	tenant := seedTenant(t, pool, "enterprise")
@@ -202,7 +200,7 @@ func TestQuotaEnterpriseUnlimited(t *testing.T) {
 		Source:   "print(1)",
 		TimeoutS: 2,
 	}
-	for i := 0; i < TierLimits["free"].MaxActive+1; i++ {
+	for i := 0; i < tierLimits["free"].MaxActive+1; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		_, d, err := checker.CheckAndCreate(ctx, tenant, params)
 		cancel()
@@ -219,5 +217,68 @@ func TestQuotaEnterpriseUnlimited(t *testing.T) {
 	}
 	if !d.Allowed {
 		t.Fatalf("enterprise should allow, got %+v", d)
+	}
+}
+
+// TestQuotaNotationConcurrency races alternate UUID notations of one tenant
+// through CheckAndCreate, proving the lock keys on the canonical value.
+func TestQuotaNotationConcurrency(t *testing.T) {
+	pool := testQuotaPool(t)
+	tenant := seedTenant(t, pool, "free")
+	upper := strings.ToUpper(tenant)
+	altUUID, err := store.ParsePg(upper)
+	if err != nil {
+		t.Fatalf("alternate notation must parse: %v", err)
+	}
+	tenantUUID, err := store.ParsePg(tenant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if altUUID != tenantUUID {
+		t.Fatal("notations must denote the same tenant")
+	}
+	checker := NewPostgresChecker(pool, nil)
+	params := storedb.CreateExecutionParams{
+		TenantID: tenantUUID,
+		Language: "python",
+		Source:   "print(1)",
+		TimeoutS: 2,
+	}
+	const workers = 10
+
+	start := make(chan struct{})
+	var admitted, denied atomic.Int64
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			notation := tenant
+			if i%2 == 1 {
+				notation = upper
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			_, d, err := checker.CheckAndCreate(ctx, notation, params)
+			if err != nil {
+				t.Errorf("CheckAndCreate: %v", err)
+				return
+			}
+			if d.Allowed {
+				admitted.Add(1)
+			} else {
+				denied.Add(1)
+			}
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	if got := admitted.Load(); got > int64(tierLimits["free"].MaxActive) {
+		t.Fatalf("admitted = %d, want at most the active limit %d", got, tierLimits["free"].MaxActive)
+	}
+	if got := admitted.Load() + denied.Load(); got != workers {
+		t.Fatalf("admitted + denied = %d, want %d racers accounted for", got, workers)
 	}
 }

@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -50,10 +51,8 @@ type ExecutionsHandler struct {
 	// SSRF blocklist (development/tests only).
 	WebhooksEnabled      bool
 	AllowPrivateWebhooks bool
-	// Quota gates submits per tenant. Nil (or QuotasEnabled=false) skips
-	// checks, preserving the pre-quota path for tests and opted-out deploys.
-	Quota         quotas.Checker
-	QuotasEnabled bool
+	// Quota gates submits per tenant. Nil skips checks.
+	Quota quotas.Checker
 }
 
 type createExecutionRequest struct {
@@ -156,11 +155,12 @@ func (h *ExecutionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		WebhookUrl: webhook,
 	}
 	var row storedb.CreateExecutionRow
-	if h.QuotasEnabled && h.Quota != nil {
+	if h.Quota != nil {
 		qrow, decision, qerr := h.Quota.CheckAndCreate(r.Context(), tenant, params)
 		if qerr != nil {
 			// Fail open: a down quota path must not 500 all submits.
 			// Availability wins over strictness for v1.
+			log.Printf("quota CheckAndCreate failed, failing open: %v", qerr)
 			var ierr error
 			row, ierr = h.Store.CreateExecution(r.Context(), params)
 			if ierr != nil {

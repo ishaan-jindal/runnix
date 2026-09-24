@@ -29,9 +29,9 @@ type Limits struct {
 	MaxActive      int
 }
 
-// TierLimits maps tenant tier to submit quotas. Unknown tiers fall back to
-// the free tier (see limitsFor).
-var TierLimits = map[string]Limits{
+// tierLimits maps tenant tier to submit quotas. Unknown tiers fall back to
+// the free tier.
+var tierLimits = map[string]Limits{
 	"free":         {SubmitsPerHour: 60, MaxActive: 2},
 	"starter":      {SubmitsPerHour: 600, MaxActive: 5},
 	"professional": {SubmitsPerHour: 6000, MaxActive: 20},
@@ -47,7 +47,6 @@ type Decision struct {
 
 // Checker gates execution submits per tenant.
 type Checker interface {
-	CheckSubmit(ctx context.Context, tenantID string) (Decision, error)
 	// CheckAndCreate atomically checks quotas and inserts the execution in
 	// the same locked transaction. On allow it returns the inserted row and
 	// an allowed Decision; on deny it inserts nothing and returns the deny
@@ -58,7 +57,7 @@ type Checker interface {
 // PostgresChecker is the Postgres-backed Checker.
 type PostgresChecker struct {
 	Pool *pgxpool.Pool
-	// Clock reports now; defaults to time.Now. A test fake pins the window.
+	// Clock reports now; defaults to time.Now.
 	Clock func() time.Time
 }
 
@@ -70,12 +69,11 @@ func NewPostgresChecker(pool *pgxpool.Pool, clock func() time.Time) *PostgresChe
 	return &PostgresChecker{Pool: pool, Clock: clock}
 }
 
-// limitsFor returns the limits for a tier string, falling back to free.
 func limitsFor(tier string) Limits {
-	if l, ok := TierLimits[strings.ToLower(strings.TrimSpace(tier))]; ok {
+	if l, ok := tierLimits[strings.ToLower(strings.TrimSpace(tier))]; ok {
 		return l
 	}
-	return TierLimits["free"]
+	return tierLimits["free"]
 }
 
 // decide maps counts to a decision. Hourly denies hint a retry after one
@@ -83,7 +81,10 @@ func limitsFor(tier string) Limits {
 // short fixed wait since a slot frees on completion, not on time.
 func decide(l Limits, hourly, active int64) Decision {
 	if l.SubmitsPerHour >= 0 && hourly >= int64(l.SubmitsPerHour) {
-		retry := 3600 / l.SubmitsPerHour
+		retry := 3600
+		if l.SubmitsPerHour > 0 {
+			retry = 3600 / l.SubmitsPerHour
+		}
 		if retry < 1 {
 			retry = 1
 		}
@@ -96,7 +97,8 @@ func decide(l Limits, hourly, active int64) Decision {
 }
 
 // advisoryLockSQL serializes one tenant's quota checks (and locked
-// check-and-insert callers) without blocking other tenants.
+// check-and-insert callers) without blocking other tenants. Callers pass
+// the canonical UUID string so alternate notations share one lock.
 const advisoryLockSQL = `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`
 
 // querier is the storedb surface quota checks need. *storedb.Queries
@@ -115,37 +117,31 @@ func (c *PostgresChecker) CheckSubmit(ctx context.Context, tenantID string) (Dec
 		return Decision{}, fmt.Errorf("quota tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	// hashtextextended yields bigint for the single-bigint lock variant, so
-	// concurrent checks for one tenant serialize while others proceed.
-	if _, err := tx.Exec(ctx, advisoryLockSQL, tenantID); err != nil {
-		return Decision{}, fmt.Errorf("quota lock: %w", err)
-	}
 	tenantUUID, err := store.ParsePg(tenantID)
 	if err != nil {
 		return Decision{}, fmt.Errorf("quota tenant: %w", err)
 	}
+	if _, err := tx.Exec(ctx, advisoryLockSQL, store.PgToString(tenantUUID)); err != nil {
+		return Decision{}, fmt.Errorf("quota lock: %w", err)
+	}
 	return checkCounts(ctx, storedb.New(tx), tenantUUID, c.Clock())
 }
 
-// CheckAndCreate atomically checks the tenant's quotas and inserts the
-// execution when allowed, all inside one advisory-locked transaction so
-// concurrent gateways cannot both see pre-insert counts and over-admit.
-// On deny it rolls back (inserting nothing) and returns the deny Decision
-// with a zero row.
+// CheckAndCreate admits and inserts in one locked transaction, so concurrent
+// submits for the same tenant serialize. On deny it rolls back (inserting
+// nothing) and returns the deny Decision with a zero row.
 func (c *PostgresChecker) CheckAndCreate(ctx context.Context, tenantID string, params storedb.CreateExecutionParams) (storedb.CreateExecutionRow, Decision, error) {
 	tx, err := c.Pool.Begin(ctx)
 	if err != nil {
 		return storedb.CreateExecutionRow{}, Decision{}, fmt.Errorf("quota tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	// hashtextextended yields bigint for the single-bigint lock variant, so
-	// one tenant's checks and inserts serialize while others proceed.
-	if _, err := tx.Exec(ctx, advisoryLockSQL, tenantID); err != nil {
-		return storedb.CreateExecutionRow{}, Decision{}, fmt.Errorf("quota lock: %w", err)
-	}
 	tenantUUID, err := store.ParsePg(tenantID)
 	if err != nil {
 		return storedb.CreateExecutionRow{}, Decision{}, fmt.Errorf("quota tenant: %w", err)
+	}
+	if _, err := tx.Exec(ctx, advisoryLockSQL, store.PgToString(tenantUUID)); err != nil {
+		return storedb.CreateExecutionRow{}, Decision{}, fmt.Errorf("quota lock: %w", err)
 	}
 	q := storedb.New(tx)
 	d, err := checkCounts(ctx, q, tenantUUID, c.Clock())
