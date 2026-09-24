@@ -131,6 +131,7 @@ Local laptop path stays `just compose-up` (`deploy/compose.yaml`).
 | `EXEC_WORKERS` | `2` | Dispatcher sandbox worker pool size |
 | `RUNNER_IMAGE` | `runnix-runner-python:local` | Image untrusted code runs in |
 | `RUNNER_RUNTIME` | `runsc` | Container runtime (`""` = daemon default) |
+| `QUOTAS_ENABLED` | `true` | Enforce per-tenant submit quotas on `POST /executions` |
 | `REAP_INTERVAL` | `1m` | Stale-running sweep frequency |
 | `REAP_STALE_AFTER` | `5m` | `running` older than this is failed (must exceed the 60 s max `timeout_s`) |
 
