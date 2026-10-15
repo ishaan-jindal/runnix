@@ -39,6 +39,10 @@ CI (`ci.yml`) runs vet + race tests + lint + build on every push/PR.
 
 - Commit style: `<prefix>: <subject>` — `feat/fix/chore/docs/ci`. Sign every
   commit: `git commit -s -S`. Never commit secrets (`.env` files stay local).
+- Never add agent attribution. No `Co-authored-by:` trailers for any AI,
+  agent, or tool (Cursor, Claude, OpenCode, Codex, etc.), and no "Generated
+  with" or "Made with" lines in commits, PR or issue titles and bodies, or
+  comments. Strip any that a tool inserts automatically.
 - No `phase` wording in commits/code/docs — use `deferred: <topic>` tags.
 - Storage changes: new `internal/store/migrations/NNNN_*.sql` (embedded,
   idempotent, replica-safe) + `queries/*.sql`, then `just generate`.
