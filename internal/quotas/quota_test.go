@@ -94,10 +94,6 @@ func (f *fakeQuerier) CountActiveExecutions(_ context.Context, _ pgtype.UUID) (i
 	return f.active, nil
 }
 
-func (f *fakeQuerier) CreateExecution(_ context.Context, _ storedb.CreateExecutionParams) (storedb.CreateExecutionRow, error) {
-	return storedb.CreateExecutionRow{}, nil
-}
-
 func TestCheckCountsUsesClockWindow(t *testing.T) {
 	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
 	fq := &fakeQuerier{tier: "free"}

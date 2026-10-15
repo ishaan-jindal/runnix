@@ -71,8 +71,6 @@ type fakePublisher struct {
 	err  error
 }
 
-func (f *fakePublisher) EnsureStreams(context.Context) error { return f.err }
-
 func (f *fakePublisher) PublishSubmit(_ context.Context, msg rnats.SubmitMessage) error {
 	f.msgs = append(f.msgs, msg)
 	return f.err

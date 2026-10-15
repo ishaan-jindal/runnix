@@ -2,9 +2,6 @@
 INSERT INTO refresh_tokens (jti, user_id, expires_at) VALUES ($1, $2, $3)
 RETURNING jti, user_id, expires_at, revoked_at, created_at;
 
--- name: GetRefreshToken :one
-SELECT jti, user_id, expires_at, revoked_at, created_at FROM refresh_tokens WHERE jti = $1;
-
 -- name: RevokeRefreshToken :exec
 UPDATE refresh_tokens SET revoked_at = now() WHERE jti = $1 AND revoked_at IS NULL;
 

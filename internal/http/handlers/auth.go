@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/mail"
 	"strings"
@@ -109,23 +108,10 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	base := slugify(req.Username)
 	tenantID := uuid.New()
-	var tenant storedb.Tenant
-	for attempt := 0; ; attempt++ {
-		slug := base
-		if attempt > 0 {
-			slug = fmt.Sprintf("%s-%s", base, uuid.NewString()[:4])
-		}
-		// Savepoint per attempt: a slug conflict aborts only the
-		// savepoint, leaving the outer tx usable for the retry.
-		t, err := createTenantTx(ctx, tx, tenantID, slug)
-		if err == nil {
-			tenant = t
-			break
-		}
-		if pgConflictStatus(err) != http.StatusConflict || attempt >= 4 {
-			writeErr(w, pgConflictStatus(err), pgConflictMessage(err, "username is taken"))
-			return
-		}
+	tenant, err := createTenantTx(ctx, tx, tenantID, base)
+	if err != nil {
+		writeErr(w, pgConflictStatus(err), pgConflictMessage(err, "username is taken"))
+		return
 	}
 	if err := q.AddMembership(ctx, storedb.AddMembershipParams{
 		UserID:   user.ID,
@@ -283,9 +269,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"user":         userJSON{ID: store.PgToString(user.ID), Username: user.Username, Email: user.Email},
 		"tenants":      tenants,
 		"accessToken":  access,
@@ -394,9 +378,7 @@ func (h *AuthHandler) writeSession(ctx context.Context, w http.ResponseWriter, c
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, code, map[string]any{
 		"user":         userJSON{ID: userID, Username: username, Email: email},
 		"tenants":      tenants,
 		"accessToken":  access,

@@ -70,12 +70,19 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			cfg.MembershipChecker = middleware.DBChecker(queries)
 		}
 	} else {
-		r.Post("/auth/register", stub("register"))
-		r.Post("/auth/login", stub("login"))
-		r.Post("/auth/refresh", stub("refresh"))
-		r.Post("/auth/logout", stub("logout"))
-		r.Post("/auth/logout-all", stub("logout-all"))
-		r.Get("/users/me", stub("me"))
+		stub := func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "not implemented (scaffold)"})
+		}
+		for _, rt := range [][2]string{
+			{"POST", "/auth/register"},
+			{"POST", "/auth/login"},
+			{"POST", "/auth/refresh"},
+			{"POST", "/auth/logout"},
+			{"POST", "/auth/logout-all"},
+			{"GET", "/users/me"},
+		} {
+			r.Method(rt[0], rt[1], http.HandlerFunc(stub))
+		}
 	}
 
 	var createExec, listExec, getExec, createTenant, getTenant http.HandlerFunc
@@ -100,14 +107,12 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		createTenant, getTenant = tenH.Create, tenH.Get
 		createKey, listKeys, deleteKey = apiH.Create, apiH.List, apiH.Delete
 	} else {
-		createExec = unavailable("create execution")
-		listExec = unavailable("list executions")
-		getExec = unavailable("get execution")
-		createTenant = unavailable("create tenant")
-		getTenant = unavailable("get tenant")
-		createKey = unavailable("create API key")
-		listKeys = unavailable("list API keys")
-		deleteKey = unavailable("revoke API key")
+		down := func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "database not connected"})
+		}
+		createExec, listExec, getExec = down, down, down
+		createTenant, getTenant = down, down
+		createKey, listKeys, deleteKey = down, down, down
 	}
 
 	// Tenant-scoped routes. Auth is enforced when JWTSecret is set.
@@ -140,21 +145,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 // submit path degrades to 502 instead of panicking on a nil publisher.
 type errPublisher struct{ err error }
 
-func (p errPublisher) EnsureStreams(context.Context) error { return p.err }
-
 func (p errPublisher) PublishSubmit(context.Context, rnats.SubmitMessage) error { return p.err }
-
-func stub(name string) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": name + " not implemented (scaffold)"})
-	}
-}
-
-func unavailable(name string) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": name + " unavailable: database not connected"})
-	}
-}
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")

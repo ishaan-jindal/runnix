@@ -7,7 +7,6 @@ import (
 	"flag"
 	"log"
 	"net/http"
-	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"github.com/ishaan-jindal/runnix/internal/config"
 	rnats "github.com/ishaan-jindal/runnix/internal/nats"
 	"github.com/ishaan-jindal/runnix/internal/store"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
@@ -38,7 +38,7 @@ func main() {
 	}
 
 	if db != nil {
-		if err := store.Migrate(ctx, db.Pool); err != nil {
+		if err := store.Migrate(ctx, db); err != nil {
 			log.Fatalf("migrate: %v", err)
 		}
 	} else if *migrateOnly {
@@ -56,7 +56,7 @@ func main() {
 		QuotasEnabled:       cfg.QuotasEnabled,
 	}
 	if db != nil {
-		routerCfg.Pool = db.Pool
+		routerCfg.Pool = db
 	}
 
 	var natsClient *rnats.Client
@@ -91,9 +91,9 @@ func main() {
 		}
 	}()
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	<-stop
+	runCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	<-runCtx.Done()
 
 	shutdownCtx, stopServer := context.WithTimeout(context.Background(), 10*time.Second)
 	defer stopServer()
@@ -104,14 +104,14 @@ func main() {
 
 // readiness pings Postgres and NATS with a short timeout for /readyz.
 // A nil dependency reports unavailable rather than crashing.
-func readiness(db *store.DB, nc *rnats.Client) func(ctx context.Context) error {
+func readiness(db *pgxpool.Pool, nc *rnats.Client) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 		var errs []error
 		if db == nil {
 			errs = append(errs, errors.New("postgres unavailable"))
-		} else if err := db.Pool.Ping(ctx); err != nil {
+		} else if err := db.Ping(ctx); err != nil {
 			errs = append(errs, err)
 		}
 		if nc == nil {

@@ -39,8 +39,6 @@ type fakeRunner struct {
 	runs int
 }
 
-func (f *fakeRunner) EnsureImage(context.Context) error { return nil }
-func (f *fakeRunner) Sweep(context.Context) error       { return nil }
 func (f *fakeRunner) Run(_ context.Context, _ rnats.SubmitMessage) (RunResult, error) {
 	f.runs++
 	return f.res, f.err

@@ -18,8 +18,19 @@ type ctxKey string
 const (
 	ctxUserKey   ctxKey = "user_id"
 	ctxTenantKey ctxKey = "tenant_id"
-	ctxRoleKey   ctxKey = "tenant_role"
 )
+
+// RequestID ensures every response carries X-Request-ID (generate if absent).
+func RequestID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := r.Header.Get("X-Request-ID")
+		if id == "" {
+			id = uuid.NewString()
+		}
+		w.Header().Set("X-Request-ID", id)
+		next.ServeHTTP(w, r)
+	})
+}
 
 // MembershipChecker reports whether user belongs to tenant and with which role.
 type MembershipChecker func(ctx context.Context, userID, tenantID string) (role string, ok bool)
@@ -78,11 +89,12 @@ func RequireAuth(secret string, check MembershipChecker) func(http.Handler) http
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h := r.Header.Get("Authorization")
-			if !strings.HasPrefix(h, "Bearer ") {
+			token, ok := strings.CutPrefix(h, "Bearer ")
+			if !ok {
 				writeErr(w, http.StatusUnauthorized, "missing bearer token")
 				return
 			}
-			claims, err := auth.ParseAccessToken(secret, strings.TrimPrefix(h, "Bearer "))
+			claims, err := auth.ParseAccessToken(secret, token)
 			if err != nil {
 				writeErr(w, http.StatusUnauthorized, "invalid token")
 				return
@@ -92,16 +104,16 @@ func RequireAuth(secret string, check MembershipChecker) func(http.Handler) http
 				writeErr(w, http.StatusBadRequest, "X-Tenant-ID is required")
 				return
 			}
-			role, ok := "", false
+			ok = false
 			for _, t := range claims.TenantClaims {
 				if t.ID == tenantID {
-					role, ok = t.Role, true
+					ok = true
 					break
 				}
 			}
 			// Fall back to store check so refreshed memberships apply before re-login.
 			if !ok && check != nil {
-				role, ok = check(r.Context(), claims.Subject, tenantID)
+				_, ok = check(r.Context(), claims.Subject, tenantID)
 			}
 			if !ok {
 				writeErr(w, http.StatusForbidden, "not a member of tenant")
@@ -109,7 +121,6 @@ func RequireAuth(secret string, check MembershipChecker) func(http.Handler) http
 			}
 			ctx := context.WithValue(r.Context(), ctxUserKey, claims.Subject)
 			ctx = context.WithValue(ctx, ctxTenantKey, tenantID)
-			ctx = context.WithValue(ctx, ctxRoleKey, role)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -121,11 +132,12 @@ func RequireUser(secret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h := r.Header.Get("Authorization")
-			if !strings.HasPrefix(h, "Bearer ") {
+			token, ok := strings.CutPrefix(h, "Bearer ")
+			if !ok {
 				writeErr(w, http.StatusUnauthorized, "missing bearer token")
 				return
 			}
-			claims, err := auth.ParseAccessToken(secret, strings.TrimPrefix(h, "Bearer "))
+			claims, err := auth.ParseAccessToken(secret, token)
 			if err != nil {
 				writeErr(w, http.StatusUnauthorized, "invalid token")
 				return
@@ -152,11 +164,8 @@ func RequireAuthWithAPIKeys(secret string, check MembershipChecker, keys APIKeyC
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h := r.Header.Get("Authorization")
-			raw := ""
-			if strings.HasPrefix(h, "Bearer ") {
-				raw = strings.TrimPrefix(h, "Bearer ")
-			}
-			if !strings.HasPrefix(raw, "sk_live_") {
+			raw, _ := strings.CutPrefix(h, "Bearer ")
+			if _, ok := strings.CutPrefix(raw, "sk_live_"); !ok {
 				RequireAuth(secret, check)(next).ServeHTTP(w, r)
 				return
 			}
@@ -182,9 +191,9 @@ func RequireAuthWithAPIKeys(secret string, check MembershipChecker, keys APIKeyC
 				writeErr(w, http.StatusForbidden, "API key is not valid for this tenant")
 				return
 			}
-			role, ok := "", false
+			ok = false
 			if check != nil {
-				role, ok = check(r.Context(), userID, tenantID)
+				_, ok = check(r.Context(), userID, tenantID)
 			}
 			if !ok {
 				writeErr(w, http.StatusForbidden, "not a member of tenant")
@@ -192,7 +201,6 @@ func RequireAuthWithAPIKeys(secret string, check MembershipChecker, keys APIKeyC
 			}
 			ctx := context.WithValue(r.Context(), ctxUserKey, userID)
 			ctx = context.WithValue(ctx, ctxTenantKey, tenantID)
-			ctx = context.WithValue(ctx, ctxRoleKey, role)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

@@ -17,8 +17,6 @@ import (
 // failPublisher fails every publish (integration: 502 path against real DB).
 type failPublisher struct{ err error }
 
-func (f failPublisher) EnsureStreams(context.Context) error { return f.err }
-
 func (f failPublisher) PublishSubmit(_ context.Context, _ rnats.SubmitMessage) error { return f.err }
 
 // registerSession registers a user and returns the session envelope.

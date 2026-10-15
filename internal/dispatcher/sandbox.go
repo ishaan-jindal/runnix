@@ -48,12 +48,8 @@ type RunResult struct {
 // Runner executes one submission. Implementations must be safe for one
 // concurrent Run at a time per instance.
 type Runner interface {
-	// EnsureImage makes the runner image available locally (pull if absent).
-	EnsureImage(ctx context.Context) error
 	// Run stages and executes msg, returning the outcome.
 	Run(ctx context.Context, msg rnats.SubmitMessage) (RunResult, error)
-	// Sweep force-removes leftover sandbox containers from crashed runs.
-	Sweep(ctx context.Context) error
 }
 
 // dockerRunner runs submissions in per-execution containers. The container
@@ -67,7 +63,7 @@ type dockerRunner struct {
 }
 
 // NewDockerRunner builds a Runner over the Docker daemon.
-func NewDockerRunner(cli *client.Client, image, runtime string) Runner {
+func NewDockerRunner(cli *client.Client, image, runtime string) *dockerRunner {
 	return &dockerRunner{cli: cli, image: image, runtime: runtime}
 }
 

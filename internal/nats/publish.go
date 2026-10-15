@@ -39,8 +39,6 @@ type ResultMessage struct {
 // Publisher is the JetStream surface the gateway needs. *Client satisfies it;
 // tests supply fakes.
 type Publisher interface {
-	// EnsureStreams creates EXEC_SUBMIT/EXEC_RESULT when missing.
-	EnsureStreams(ctx context.Context) error
 	// PublishSubmit publishes msg to exec.submit.<lang>.
 	PublishSubmit(ctx context.Context, msg SubmitMessage) error
 }

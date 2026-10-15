@@ -107,24 +107,6 @@ type querier interface {
 	GetTenant(ctx context.Context, id pgtype.UUID) (storedb.Tenant, error)
 	CountExecutionsSince(ctx context.Context, arg storedb.CountExecutionsSinceParams) (int64, error)
 	CountActiveExecutions(ctx context.Context, tenantID pgtype.UUID) (int64, error)
-	CreateExecution(ctx context.Context, arg storedb.CreateExecutionParams) (storedb.CreateExecutionRow, error)
-}
-
-// CheckSubmit reports whether the tenant may submit now.
-func (c *PostgresChecker) CheckSubmit(ctx context.Context, tenantID string) (Decision, error) {
-	tx, err := c.Pool.Begin(ctx)
-	if err != nil {
-		return Decision{}, fmt.Errorf("quota tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	tenantUUID, err := store.ParsePg(tenantID)
-	if err != nil {
-		return Decision{}, fmt.Errorf("quota tenant: %w", err)
-	}
-	if _, err := tx.Exec(ctx, advisoryLockSQL, store.PgToString(tenantUUID)); err != nil {
-		return Decision{}, fmt.Errorf("quota lock: %w", err)
-	}
-	return checkCounts(ctx, storedb.New(tx), tenantUUID, c.Clock())
 }
 
 // CheckAndCreate admits and inserts in one locked transaction, so concurrent
@@ -162,8 +144,7 @@ func (c *PostgresChecker) CheckAndCreate(ctx context.Context, tenantID string, p
 }
 
 // checkCounts reads the tier and counts inside the caller's locked
-// transaction and maps them to a decision. Shared by CheckSubmit and
-// CheckAndCreate so both enforce identical limits.
+// transaction and maps them to a decision.
 func checkCounts(ctx context.Context, q querier, tenantUUID pgtype.UUID, now time.Time) (Decision, error) {
 	tenant, err := q.GetTenant(ctx, tenantUUID)
 	if err != nil {
