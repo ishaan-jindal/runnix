@@ -17,7 +17,7 @@ const (
 	TierEnterprise   Tier = "enterprise"
 )
 
-// Tenant is an org mapped to a Kubernetes namespace (runnix-tenant-<id>).
+// Tenant is an org workspace.
 type Tenant struct {
 	ID        string
 	Slug      string

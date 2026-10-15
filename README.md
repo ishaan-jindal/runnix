@@ -4,34 +4,25 @@
 [![release](https://img.shields.io/github/v/release/ishaan-jindal/runnix)](https://github.com/ishaan-jindal/runnix/releases)
 [![license](https://img.shields.io/github/license/ishaan-jindal/runnix)](LICENSE)
 
-Multi-tenant sandboxed code execution. Clients authenticate, submit source
-code, and poll (or receive a webhook) for the result. Every execution runs
-isolated, resource-bounded, and auditable.
-
-Built with Go services, NATS JetStream, and Postgres. The successor to
-[`runnix-legacy`](https://github.com/ishaan-jindal/runnix-legacy), a Node.js
-prototype now frozen and archived.
+Multi-tenant sandboxed code execution: authenticate, submit source, poll
+or receive a webhook for the result. Go + NATS JetStream + Postgres;
+every run is isolated, bounded, and auditable.
 
 ## Features
 
-- **Multi-tenant auth** — JWT access/refresh tokens or tenant API keys
-  (`sk_live_...`); users belong to many tenants via `memberships`. Every
-  tenant route requires `Authorization: Bearer <token>` plus `X-Tenant-ID`;
-  `403` always means not-a-member.
-- **Submit and poll** — `POST /executions` persists the submission and
-  enqueues it on NATS JetStream; `GET /executions/{id}` returns status,
-  stdout, stderr, and exit code.
-- **Sandboxed runs** — each execution runs in its own container under
-  gVisor (`runsc`): non-root user, no network, read-only rootfs, `cap-drop:
-  ALL`, 128 MB RAM, 0.5 CPU, 32 pids, configurable 1–60 s timeout.
-- **Signed webhooks** — submissions may carry a `webhook_url`. Completion
-  events are HMAC-SHA256-signed, retried, and SSRF-guarded at submit and
-  delivery time. See `docs/webhooks.md`.
-- **Crash-safe queue** — at-least-once JetStream delivery with a
-  DB-backed claim guard (duplicates are acked, never re-run), plus a
-  reaper that fails executions stranded by a lost dispatcher.
-- **Zero-touch schema** — gateway and dispatcher apply embedded Postgres
-  migrations idempotently at startup.
+- **Multi-tenant auth** — JWT or `sk_live_...` API keys; tenant routes need
+  `Authorization: Bearer <token>` plus `X-Tenant-ID`.
+- **Submit and poll** — `POST /executions` enqueues on JetStream;
+  `GET /executions/{id}` returns status, stdout/stderr, exit code.
+- **Sandboxed runs** — one gVisor (`runsc`) container per execution, no
+  network, read-only rootfs (limits in Security model).
+- **Submit quotas** — per-tenant hourly + active caps; over-limit submits
+  get `429` with `Retry-After` (`QUOTAS_ENABLED=false` disables).
+- **Signed webhooks** — HMAC-SHA256 delivery, SSRF-guarded.
+  See `docs/webhooks.md`.
+- **Crash-safe queue** — at-least-once delivery with a DB claim guard
+  (duplicates acked, never re-run) plus a stale-running reaper.
+- **Zero-touch schema** — embedded Postgres migrations applied at startup.
 
 ## Architecture
 
@@ -40,43 +31,39 @@ Client ──HTTP──▶ Gateway ──publish──▶ NATS JetStream ──c
                     │                    exec.submit.<lang>              │
                     │                                                   │ create
               Postgres ◀── write result ── sandbox container ── run ────┘
-              (users, tenants,                     │  runsc, 128m/0.5CPU
+              (users, tenants,                     │  runsc
                executions, audit)                  ▼
                                         exec.result.<id> ──▶ webhook POST
 ```
 
-- **Gateway** (`cmd/gateway`) — stateless HTTP API: auth, validation,
-  tenancy enforcement, JetStream publishing. Live readiness checks.
-- **Dispatcher** (`cmd/dispatcher`) — durable JetStream consumer, worker
-  pool, one sandbox container per execution, Postgres result writer,
-  webhook deliverer, stale-running reaper.
+- **Gateway** (`cmd/gateway`) — stateless HTTP: auth, validation, tenancy, publish.
+- **Dispatcher** (`cmd/dispatcher`) — JetStream consumer, sandbox runs, result writes, webhooks, reaper.
 - **NATS JetStream** — durable `EXEC_SUBMIT` / `EXEC_RESULT` streams.
-- **Postgres** — users, tenants, memberships, executions (via sqlc + pgx).
+- **Postgres** — users, tenants, memberships, executions (sqlc + pgx).
 
 ## API
 
-All tenant routes require `Authorization: Bearer <token>` (JWT or tenant
-API key) and `X-Tenant-ID`.
-Full request/response shapes live in `api/openapi.yaml`.
+Tenant routes require `Authorization: Bearer <token>` and `X-Tenant-ID`.
+Full shapes in `api/openapi.yaml`.
 
 | Method & path | Description |
 |---|---|
-| `GET /healthz`, `GET /readyz` | Liveness; readiness (Postgres + NATS checks) |
-| `GET /languages` | Supported languages (currently `["python"]`) |
-| `POST /auth/register` | Create user + personal tenant, returns token pair (`201`) |
-| `POST /auth/login` | Token pair by email or username (`200`) |
-| `POST /auth/refresh` | Rotated token pair, memberships re-resolved (`200`) |
-| `POST /auth/logout` | Revoke one refresh token, always `200` (idempotent) |
-| `POST /auth/logout-all` | Revoke all of the caller's refresh tokens (`200`) |
-| `GET /users/me` | Caller identity with tenant memberships (`200`) |
-| `POST /tenants` | Create org tenant, caller becomes owner (`201`) |
-| `GET /tenants/{id}` | Get tenant; id must equal `X-Tenant-ID` |
-| `POST /tenants/{id}/api-keys` | Mint a tenant API key, full key returned once (`201`) |
-| `GET /tenants/{id}/api-keys` | List key metadata, never secrets (`200`) |
-| `DELETE /tenants/{id}/api-keys/{keyId}` | Revoke a key (`200`; `404` when unknown) |
-| `POST /executions` | Submit code (`202 {id, status: queued}`; `502` if the queue is down) |
-| `GET /executions` | List executions for the tenant, newest first (paged) |
-| `GET /executions/{id}` | One execution with source, stdout, stderr, exit code (`404` across tenants) |
+| `GET /healthz`, `GET /readyz` | Liveness; readiness (Postgres + NATS) |
+| `GET /languages` | Supported languages (`["python"]`) |
+| `POST /auth/register` | Create user + personal tenant, token pair |
+| `POST /auth/login` | Token pair by email or username |
+| `POST /auth/refresh` | Rotated token pair |
+| `POST /auth/logout` | Revoke one refresh token (idempotent) |
+| `POST /auth/logout-all` | Revoke all refresh tokens |
+| `GET /users/me` | Caller identity + memberships |
+| `POST /tenants` | Create org tenant (caller becomes owner) |
+| `GET /tenants/{id}` | Get tenant (id must match `X-Tenant-ID`) |
+| `POST /tenants/{id}/api-keys` | Mint key, full secret returned once |
+| `GET /tenants/{id}/api-keys` | List key metadata (never secrets) |
+| `DELETE /tenants/{id}/api-keys/{keyId}` | Revoke a key |
+| `POST /executions` | Submit code (`202 queued`; `429` quota; `502` queue down) |
+| `GET /executions` | List tenant executions, newest first (paged) |
+| `GET /executions/{id}` | One execution with output (`404` cross-tenant) |
 
 Error envelope is always `{"error": "..."}`. Auth errors: `401` bad
 token, `400` missing `X-Tenant-ID`, `403` not-a-member.
@@ -96,18 +83,16 @@ Register, submit, poll:
 ```bash
 REG=$(curl -s -X POST localhost:4000/auth/register \
   -d '{"username":"ada","email":"ada@example.com","password":"SecurePass123"}')
+TOKEN=$(echo "$REG" | python3 -c "import json,sys; print(json.load(sys.stdin)['accessToken'])")
 TENANT=$(echo "$REG" | python3 -c "import json,sys; print(json.load(sys.stdin)['tenants'][0]['id'])")
+AUTH="Authorization: Bearer $TOKEN"
 
-SUB=$(curl -s -X POST localhost:4000/executions -H "X-Tenant-ID: $TENANT" \
+SUB=$(curl -s -X POST localhost:4000/executions -H "$AUTH" -H "X-Tenant-ID: $TENANT" \
   -d '{"language":"python","source":"print(40+2)"}')
 ID=$(echo "$SUB" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 
-curl -s localhost:4000/executions/$ID -H "X-Tenant-ID: $TENANT" | python3 -m json.tool
+curl -s localhost:4000/executions/$ID -H "$AUTH" -H "X-Tenant-ID: $TENANT" | python3 -m json.tool
 # status walks queued -> running -> succeeded; stdout holds "42\n"
-
-# With a completion webhook (receiver must be reachable from the dispatcher):
-curl -s -X POST localhost:4000/executions -H "X-Tenant-ID: $TENANT" \
-  -d '{"language":"python","source":"print(1)","webhook_url":"https://example.com/hook"}'
 ```
 
 To stop everything (drops the database volume): `just compose-down`.
@@ -115,7 +100,7 @@ To stop everything (drops the database volume): `just compose-down`.
 ## Deployment
 
 Hosted dev/prod run on one VM behind Caddy; see `deploy/README.md`.
-Local laptop path stays `just compose-up` (`deploy/compose.yaml`).
+Laptop path stays `just compose-up` (`deploy/compose.yaml`).
 
 ## Configuration
 
@@ -126,17 +111,14 @@ Local laptop path stays `just compose-up` (`deploy/compose.yaml`).
 | `DATABASE_URL` | local postgres DSN | — |
 | `NATS_URL` | `nats://localhost:4222` | — |
 | `JWT_SECRET` | — (empty in dev) | Required outside `development` |
-| `WEBHOOK_SIGNING_SECRET` | — (empty) | Enables `webhook_url` submissions; same value on gateway and dispatcher |
-| `WEBHOOK_ALLOW_PRIVATE` | `false` | Allow loopback/private webhook hosts (dev/tests only) |
-| `EXEC_WORKERS` | `2` | Dispatcher sandbox worker pool size |
-| `RUNNER_IMAGE` | `runnix-runner-python:local` | Image untrusted code runs in |
-| `RUNNER_RUNTIME` | `runsc` | Container runtime (`""` = daemon default) |
-| `QUOTAS_ENABLED` | `true` | Enforce per-tenant submit quotas on `POST /executions` |
+| `WEBHOOK_SIGNING_SECRET` | — (empty) | Enables `webhook_url`; same on gateway + dispatcher |
+| `WEBHOOK_ALLOW_PRIVATE` | `false` | Allow private hosts (dev/tests only) |
+| `EXEC_WORKERS` | `2` | Dispatcher worker pool size |
+| `RUNNER_IMAGE` | `runnix-runner-python:local` | Untrusted-code image |
+| `RUNNER_RUNTIME` | `runsc` | Container runtime (`""` = default) |
+| `QUOTAS_ENABLED` | `true` | Enforce quotas on `POST /executions` |
 | `REAP_INTERVAL` | `1m` | Stale-running sweep frequency |
-| `REAP_STALE_AFTER` | `5m` | `running` older than this is failed (must exceed the 60 s max `timeout_s`) |
-
-In Kubernetes the same keys are provided via ConfigMap/Secret. See
-`deploy/compose.yaml` for the local values.
+| `REAP_STALE_AFTER` | `5m` | `running` older than this fails (must exceed 60 s max `timeout_s`) |
 
 ## Development
 
@@ -151,25 +133,19 @@ just dev                 # run the gateway locally
 just dispatcher          # run the dispatcher locally (needs Docker + Postgres + NATS)
 ```
 
-Integration tests boot real Postgres/NATS containers and run real code
-in the sandbox; they skip automatically when Docker is unavailable.
+Integration tests use real Postgres/NATS/containers; skipped without Docker.
 
 ## Security model
 
-- **Sandbox** — per-execution container: gVisor runtime, UID/GID 65534,
-  `NetworkMode: none`, read-only rootfs with writable tmpfs `/tmp` and
-  `/work`, `cap-drop: ALL`, 128 MB RAM (+128 MB swap), 0.5 CPU, 32 pids.
-  Code and stdin arrive as a tar over the container's stdin (no bind
-  mounts, so it works identically from inside or outside Docker).
-  Stdout/stderr are truncated at 64 KiB each. OOM kills are detected and
-  reported as failures.
-- **Tenancy** — users ↔ tenants is many-to-many via `memberships`; the
-  middleware re-checks membership per request (a stale token can't reach
-  a tenant you've left). Cross-tenant reads return `404`, never leak.
-- **Webhooks** — `webhook_url` must be http(s) on a public host (DNS
-  re-resolved at delivery; `WEBHOOK_ALLOW_PRIVATE` lifts this for local
-  dev). Deliveries are HMAC-SHA256-signed over `<timestamp>.<body>`,
-  retried 3× on transport errors/5xx/429, never follow redirects.
+- **Sandbox** — per-execution container: gVisor, UID/GID 65534, no network,
+  read-only rootfs (+ writable `/tmp`, `/work`), `cap-drop: ALL`, 128 MB RAM
+  (+128 MB swap), 0.5 CPU, 32 pids, 1–60 s timeout, 64 KiB output cap each,
+  OOM reported as failure.
+- **Tenancy** — users ↔ tenants many-to-many via `memberships`, re-checked
+  per request; cross-tenant reads return `404`.
+- **Webhooks** — public http(s) only (`WEBHOOK_ALLOW_PRIVATE` lifts for dev),
+  HMAC-SHA256 over `<timestamp>.<body>`, 3× retry, no redirects.
+  See `docs/webhooks.md`.
 
 ## License
 

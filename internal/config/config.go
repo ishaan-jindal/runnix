@@ -1,5 +1,4 @@
 // Package config loads service configuration from the environment.
-// In Kubernetes the same keys are provided via ConfigMap/Secret.
 package config
 
 import (

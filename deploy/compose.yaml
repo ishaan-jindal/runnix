@@ -58,7 +58,7 @@ services:
       REAP_INTERVAL: 1m
       REAP_STALE_AFTER: 5m
     # Dev-only: the dispatcher drives the host Docker daemon (gVisor runsc)
-    # to sandbox executions. K8s removes the socket (Job-per-execution).
+    # to sandbox executions.
     # Root is required to read the socket; the code under test still runs as
     # non-root inside its own container.
     user: root

@@ -29,7 +29,7 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-// HashPassword hashes with bcrypt (cost 12 matches legacy posture).
+// HashPassword hashes with bcrypt (cost 12).
 func HashPassword(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
 	if err != nil {

@@ -6,9 +6,6 @@ falls back to the default runtime in tests/CI), `cap-drop=ALL`, read-only
 rootfs + tmpfs `/tmp`, no network, `128m` memory (+`128m` swap), `0.5` CPU,
 `32` pids, non-root `nobody`.
 
-K8s parity (deferred: k8s-jobs): the same image becomes the `Job` container
-with `RuntimeClass: kata-gvisor` + matching `securityContext`.
-
 ## Build
 
 ```bash

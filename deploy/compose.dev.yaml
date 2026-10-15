@@ -64,7 +64,7 @@ services:
       WEBHOOK_SIGNING_SECRET: ${WEBHOOK_SIGNING_SECRET:-}
       REAP_INTERVAL: 1m
       REAP_STALE_AFTER: 5m
-    # Matches the current dev posture (host docker socket) until Job-per-execution lands.
+    # Uses the host docker socket.
     user: root
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

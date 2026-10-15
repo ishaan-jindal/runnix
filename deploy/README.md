@@ -197,8 +197,7 @@ This is a 1 GB box — treat RAM as the budget:
   (wipes cert storage, forcing re-issuance against rate limits); plain
   `down` is safe for both.
 
-> Known risk: the dispatcher runs as root with the host docker socket
-> (inherited dev posture until Job-per-execution) — a dispatcher
+> Known risk: the dispatcher runs as root with the host docker socket — a dispatcher
 > compromise means host root. Mitigations in place: no published
 > DB/NATS/gateway ports, `ENV=production` fail-closed, stop idle dev.
 > Do not add mounts or published ports to the dispatcher.

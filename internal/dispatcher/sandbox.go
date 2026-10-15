@@ -23,7 +23,7 @@ import (
 	rnats "github.com/ishaan-jindal/runnix/internal/nats"
 )
 
-// Sandbox resource bounds, matching the legacy posture (see vault Architecture).
+// Sandbox resource bounds.
 const (
 	sandboxMemory   = 128 * 1024 * 1024      // 128m
 	sandboxMemorySw = 256 * 1024 * 1024      // 128m mem + 128m swap

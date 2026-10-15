@@ -14,9 +14,8 @@ defined in code — see `SupportedLanguages` (surfaced by `GET /languages`).
 - `internal/{auth,config,tenants,executions,http,nats,store,dispatcher,webhooks}` — core
 - `internal/store/{migrations,queries}` + `storedb/` (**sqlc-generated, never hand-edit**)
 - `runner/docker/` — sandbox image (`python:3.12-slim`, UID 65534)
-- `api/openapi.yaml` — full API contract; `docs/{webhooks,api-parity}.md`
+- `api/openapi.yaml` — full API contract; `docs/webhooks.md`
 - `deploy/compose.yaml` — laptop stack; `compose.{caddy,prod,dev}.yaml` — hosted VM
-- `charts/runnix/` — deliberate placeholder (`deferred: helm`)
 
 ## Commands (`just --list` shows all)
 
@@ -57,7 +56,7 @@ CI (`ci.yml`) runs vet + race tests + lint + build on every push/PR.
 
 - Dispatcher needs the Docker socket + `RUNNER_RUNTIME=runsc` locally; the
   sandbox image must exist (`compose-up` builds it via the `runner-python`
-  service). K8s Job-per-execution is the documented future, not this socket.
+  service).
 - Work files enter the sandbox as a tar over the container's stdin — no bind
   mounts (they don't resolve through a mounted socket), `CopyToContainer`
   refuses read-only rootfs.
