@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/ishaan-jindal/runnix/internal/executions"
 	"github.com/ishaan-jindal/runnix/internal/http/middleware"
 	"github.com/ishaan-jindal/runnix/internal/quotas"
@@ -206,7 +206,7 @@ func (h *ExecutionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"id":         id,
 		"status":     row.Status,
-		"created_at": row.CreatedAt.Time.Format("2006-01-02T15:04:05.999999999Z07:00"),
+		"created_at": row.CreatedAt.Time.Format(time.RFC3339Nano),
 	})
 }
 
@@ -244,8 +244,8 @@ func (h *ExecutionsHandler) List(w http.ResponseWriter, r *http.Request) {
 			ID:        store.PgToString(row.ID),
 			Language:  row.Language,
 			Status:    row.Status,
-			CreatedAt: row.CreatedAt.Time.Format("2006-01-02T15:04:05.999999999Z07:00"),
-			UpdatedAt: row.UpdatedAt.Time.Format("2006-01-02T15:04:05.999999999Z07:00"),
+			CreatedAt: row.CreatedAt.Time.Format(time.RFC3339Nano),
+			UpdatedAt: row.UpdatedAt.Time.Format(time.RFC3339Nano),
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -269,7 +269,7 @@ func (h *ExecutionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid X-Tenant-ID")
 		return
 	}
-	id, err := store.ParsePg(chi.URLParam(r, "id"))
+	id, err := store.ParsePg(r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid execution id")
 		return
@@ -300,8 +300,8 @@ func (h *ExecutionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		Stdout:    row.Stdout,
 		Stderr:    row.Stderr,
 		ExitCode:  exitCode,
-		CreatedAt: row.CreatedAt.Time.Format("2006-01-02T15:04:05.999999999Z07:00"),
-		UpdatedAt: row.UpdatedAt.Time.Format("2006-01-02T15:04:05.999999999Z07:00"),
+		CreatedAt: row.CreatedAt.Time.Format(time.RFC3339Nano),
+		UpdatedAt: row.UpdatedAt.Time.Format(time.RFC3339Nano),
 	})
 }
 

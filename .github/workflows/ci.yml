@@ -1,7 +1,15 @@
 name: ci
 on:
   push:
+    # v* tags are vetted/tested/built by the release gate; skip the duplicate run here.
+    tags-ignore:
+      - "v*"
   pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -11,9 +19,16 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: extractions/setup-just@v2
+      - run: go mod tidy -diff
       - run: go vet ./...
       - run: go test -race ./...
       - uses: golangci/golangci-lint-action@v8
         with:
           version: v2.13.2
       - run: go build ./...
+      - run: just deploy-check
+      - name: Check generated code is current
+        run: |
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+          sqlc diff

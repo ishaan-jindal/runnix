@@ -36,7 +36,7 @@ func main() {
 		log.Fatalf("dispatcher: Postgres unavailable: %v", err)
 	}
 	defer db.Close()
-	if err := store.Migrate(ctx, db.Pool); err != nil {
+	if err := store.Migrate(ctx, db); err != nil {
 		log.Fatalf("dispatcher: migrate: %v", err)
 	}
 
@@ -67,7 +67,7 @@ func main() {
 		log.Printf("dispatcher: sweep leftover containers: %v", err)
 	}
 
-	queries := storedb.New(db.Pool)
+	queries := storedb.New(db)
 	d := &dispatcher.Dispatcher{
 		Store:     queries,
 		Publisher: nc,

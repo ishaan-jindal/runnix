@@ -48,12 +48,8 @@ type RunResult struct {
 // Runner executes one submission. Implementations must be safe for one
 // concurrent Run at a time per instance.
 type Runner interface {
-	// EnsureImage makes the runner image available locally (pull if absent).
-	EnsureImage(ctx context.Context) error
 	// Run stages and executes msg, returning the outcome.
 	Run(ctx context.Context, msg rnats.SubmitMessage) (RunResult, error)
-	// Sweep force-removes leftover sandbox containers from crashed runs.
-	Sweep(ctx context.Context) error
 }
 
 // dockerRunner runs submissions in per-execution containers. The container
@@ -67,7 +63,7 @@ type dockerRunner struct {
 }
 
 // NewDockerRunner builds a Runner over the Docker daemon.
-func NewDockerRunner(cli *client.Client, image, runtime string) Runner {
+func NewDockerRunner(cli *client.Client, image, runtime string) *dockerRunner {
 	return &dockerRunner{cli: cli, image: image, runtime: runtime}
 }
 
@@ -231,13 +227,19 @@ func (r *dockerRunner) wait(ctx context.Context, id string, timeout time.Duratio
 	}
 
 	if res.TimedOut {
+		// The runCtx channels are tied to the expired runCtx and must not
+		// be reused: open a fresh wait on a TTL-bounded background ctx
+		// before killing so the post-kill exit is observed reliably.
+		killCtx, killCancel := context.WithTimeout(context.Background(), containerTTL)
+		defer killCancel()
+		waitCh, errCh := r.cli.ContainerWait(killCtx, id, container.WaitConditionNotRunning)
 		// Hard-kill, then wait for the container to actually stop so logs
 		// (partial output) are readable before we remove it.
 		_ = r.cli.ContainerKill(context.Background(), id, "SIGKILL")
 		select {
 		case <-waitCh:
 		case <-errCh:
-		case <-time.After(containerTTL):
+		case <-killCtx.Done():
 		}
 	}
 	return res, nil

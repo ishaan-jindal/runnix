@@ -143,15 +143,14 @@ func HashAPIKeySecret(secret string) string {
 // ParseAPIKey parses sk_live_<keyID>.<secret> into its parts.
 func ParseAPIKey(full string) (string, string, error) {
 	const prefix = "sk_live_"
-	if !strings.HasPrefix(full, prefix) {
+	rest, ok := strings.CutPrefix(full, prefix)
+	if !ok {
 		return "", "", fmt.Errorf("invalid API key format")
 	}
-	rest := strings.TrimPrefix(full, prefix)
-	idx := strings.Index(rest, ".")
-	if idx < 0 {
+	keyID, secret, ok := strings.Cut(rest, ".")
+	if !ok {
 		return "", "", fmt.Errorf("invalid API key format")
 	}
-	keyID, secret := rest[:idx], rest[idx+1:]
 	if keyID == "" || secret == "" {
 		return "", "", fmt.Errorf("invalid API key format")
 	}

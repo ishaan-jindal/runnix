@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -20,6 +21,16 @@ import (
 )
 
 const testJWTSecret = "integration-test-secret-min-32-bytes!!"
+
+// skipNoDocker fails in CI so daemon outages are visible, but skips locally
+// so unit runs stay green without Docker.
+func skipNoDocker(t *testing.T, format string, args ...any) {
+	t.Helper()
+	if os.Getenv("CI") == "true" {
+		t.Fatalf(format, args...)
+	}
+	t.Skipf(format, args...)
+}
 
 // testPool boots postgres:16-alpine and applies migrations via store.Migrate.
 // It runs Migrate twice to prove idempotency.
@@ -39,7 +50,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 		),
 	)
 	if err != nil {
-		t.Skipf("docker unavailable, skipping integration test: %v", err)
+		skipNoDocker(t, "docker unavailable, skipping integration test: %v", err)
 	}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -78,7 +89,7 @@ func testNATS(t *testing.T) *rnats.Client {
 		testcontainers.WithWaitStrategy(wait.ForListeningPort("4222/tcp")),
 	)
 	if err != nil {
-		t.Skipf("docker unavailable, skipping integration test: %v", err)
+		skipNoDocker(t, "docker unavailable, skipping integration test: %v", err)
 	}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)

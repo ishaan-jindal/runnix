@@ -129,7 +129,7 @@ func TestQuotaConcurrency(t *testing.T) {
 		t.Fatalf("admitted + denied = %d, want %d racers accounted for", got, workers)
 	}
 
-	d, err := checker.CheckSubmit(context.Background(), tenant)
+	_, d, err := checker.CheckAndCreate(context.Background(), tenant, params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,16 @@ func TestQuotaHourlyLimit(t *testing.T) {
 	for i := 0; i < tierLimits["free"].SubmitsPerHour; i++ {
 		finishExecution(t, pool, tenant)
 	}
-	d, err := NewPostgresChecker(pool, nil).CheckSubmit(context.Background(), tenant)
+	tenantUUID, err := store.ParsePg(tenant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, d, err := NewPostgresChecker(pool, nil).CheckAndCreate(context.Background(), tenant, storedb.CreateExecutionParams{
+		TenantID: tenantUUID,
+		Language: "python",
+		Source:   "print(1)",
+		TimeoutS: 2,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +220,7 @@ func TestQuotaEnterpriseUnlimited(t *testing.T) {
 			t.Fatalf("enterprise attempt %d denied, want allow", i)
 		}
 	}
-	d, err := checker.CheckSubmit(context.Background(), tenant)
+	_, d, err := checker.CheckAndCreate(context.Background(), tenant, params)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,13 +9,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// DB wraps the pgx pool.
-type DB struct {
-	Pool *pgxpool.Pool
-}
-
 // Connect opens a pgx pool. Callers must Close when done.
-func Connect(ctx context.Context, databaseURL string) (*DB, error) {
+func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
 		return nil, err
@@ -24,12 +19,5 @@ func Connect(ctx context.Context, databaseURL string) (*DB, error) {
 		pool.Close()
 		return nil, err
 	}
-	return &DB{Pool: pool}, nil
-}
-
-// Close releases the pool.
-func (db *DB) Close() {
-	if db != nil && db.Pool != nil {
-		db.Pool.Close()
-	}
+	return pool, nil
 }

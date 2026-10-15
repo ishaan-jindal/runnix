@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/ishaan-jindal/runnix/internal/http/middleware"
 	"github.com/ishaan-jindal/runnix/internal/store"
@@ -90,23 +90,10 @@ func (h *TenantsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	q := storedb.New(tx)
 
 	tenantID := uuid.New()
-	var tenant storedb.Tenant
-	for attempt := 0; ; attempt++ {
-		slug := base
-		if attempt > 0 {
-			slug = fmt.Sprintf("%s-%s", base, uuid.NewString()[:4])
-		}
-		// Savepoint per attempt: a slug conflict aborts only the
-		// savepoint, leaving the outer tx usable for the retry.
-		t, err := createTenantTx(ctx, tx, tenantID, slug)
-		if err == nil {
-			tenant = t
-			break
-		}
-		if pgConflictStatus(err) != http.StatusConflict || attempt >= 4 {
-			writeErr(w, pgConflictStatus(err), pgConflictMessage(err, "slug is taken"))
-			return
-		}
+	tenant, err := createTenantTx(ctx, tx, tenantID, base)
+	if err != nil {
+		writeErr(w, pgConflictStatus(err), pgConflictMessage(err, "slug is taken"))
+		return
 	}
 	if err := q.AddMembership(ctx, storedb.AddMembershipParams{
 		UserID:   uid,
@@ -127,16 +114,33 @@ func (h *TenantsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		"namespace":  tenant.Namespace,
 		"tier":       tenant.Tier,
 		"role":       "owner",
-		"created_at": tenant.CreatedAt.Time.Format("2006-01-02T15:04:05.999999999Z07:00"),
+		"created_at": tenant.CreatedAt.Time.Format(time.RFC3339Nano),
 	})
 }
 
-// createTenantTx inserts one tenant inside a savepoint of tx. A slug
-// conflict aborts only the savepoint (ROLLBACK TO SAVEPOINT on defer), so
-// the caller can retry with a different slug in the same outer transaction.
-// (Postgres aborts the whole tx on any statement error; without the
-// savepoint every retry after the first conflict would fail with 25P02.)
-func createTenantTx(ctx context.Context, tx pgx.Tx, id uuid.UUID, slug string) (storedb.Tenant, error) {
+// createTenantTx inserts one tenant, retrying slug collisions (up to 4
+// suffixed retries) inside savepoints of tx. A slug conflict aborts only
+// the savepoint (ROLLBACK TO SAVEPOINT on defer), so the caller can retry
+// with a different slug in the same outer transaction. (Postgres aborts
+// the whole tx on any statement error; without the savepoint every retry
+// after the first conflict would fail with 25P02.)
+func createTenantTx(ctx context.Context, tx pgx.Tx, id uuid.UUID, base string) (storedb.Tenant, error) {
+	for attempt := 0; ; attempt++ {
+		slug := base
+		if attempt > 0 {
+			slug = fmt.Sprintf("%s-%s", base, uuid.NewString()[:4])
+		}
+		t, err := tryCreateTenantTx(ctx, tx, id, slug)
+		if err == nil {
+			return t, nil
+		}
+		if pgConflictStatus(err) != http.StatusConflict || attempt >= 4 {
+			return storedb.Tenant{}, err
+		}
+	}
+}
+
+func tryCreateTenantTx(ctx context.Context, tx pgx.Tx, id uuid.UUID, slug string) (storedb.Tenant, error) {
 	sp, err := tx.Begin(ctx)
 	if err != nil {
 		return storedb.Tenant{}, err
@@ -167,7 +171,7 @@ func (h *TenantsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "X-Tenant-ID is required")
 		return
 	}
-	idParam := chi.URLParam(r, "id")
+	idParam := r.PathValue("id")
 	if idParam != tenant {
 		writeErr(w, http.StatusForbidden, "tenant id does not match X-Tenant-ID")
 		return
@@ -192,6 +196,6 @@ func (h *TenantsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		"slug":       tenantRow.Slug,
 		"namespace":  tenantRow.Namespace,
 		"tier":       tenantRow.Tier,
-		"created_at": tenantRow.CreatedAt.Time.Format("2006-01-02T15:04:05.999999999Z07:00"),
+		"created_at": tenantRow.CreatedAt.Time.Format(time.RFC3339Nano),
 	})
 }

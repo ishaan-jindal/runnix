@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/ishaan-jindal/runnix/internal/store"
 	"github.com/ishaan-jindal/runnix/internal/store/storedb"
 	"github.com/jackc/pgx/v5"
@@ -70,8 +69,6 @@ type fakePublisher struct {
 	msgs []rnats.SubmitMessage
 	err  error
 }
-
-func (f *fakePublisher) EnsureStreams(context.Context) error { return f.err }
 
 func (f *fakePublisher) PublishSubmit(_ context.Context, msg rnats.SubmitMessage) error {
 	f.msgs = append(f.msgs, msg)
@@ -204,8 +201,8 @@ func TestGetExecution(t *testing.T) {
 		return &ExecutionsHandler{Store: st, Publisher: &fakePublisher{}}, st
 	}
 	mux := func(h *ExecutionsHandler) http.Handler {
-		m := chi.NewRouter()
-		m.Get("/executions/{id}", h.Get)
+		m := http.NewServeMux()
+		m.HandleFunc("GET /executions/{id}", h.Get)
 		return m
 	}
 	headers := map[string]string{"X-Tenant-ID": testTenantID}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"sort"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -28,13 +27,14 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	if err != nil {
 		return fmt.Errorf("read migrations: %w", err)
 	}
+	// ReadDir returns entries sorted by filename, so versions apply in
+	// lexical order.
 	var versions []string
 	for _, e := range entries {
 		if !e.IsDir() {
 			versions = append(versions, e.Name())
 		}
 	}
-	sort.Strings(versions)
 
 	for _, v := range versions {
 		if err := applyMigration(ctx, pool, v); err != nil {

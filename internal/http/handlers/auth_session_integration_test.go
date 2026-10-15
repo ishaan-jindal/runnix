@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/ishaan-jindal/runnix/internal/http/middleware"
 )
 
@@ -14,9 +13,9 @@ func TestRefreshRotation(t *testing.T) {
 	pool := testPool(t)
 	authH := &AuthHandler{Pool: pool, JWTSecret: testJWTSecret}
 
-	m := chi.NewRouter()
-	m.Post("/auth/register", authH.Register)
-	m.Post("/auth/refresh", authH.Refresh)
+	m := http.NewServeMux()
+	m.HandleFunc("POST /auth/register", authH.Register)
+	m.HandleFunc("POST /auth/refresh", authH.Refresh)
 
 	sess := registerSession(t, m, "RotUser", "rot@example.com")
 
@@ -59,10 +58,10 @@ func TestLogoutRevokes(t *testing.T) {
 	pool := testPool(t)
 	authH := &AuthHandler{Pool: pool, JWTSecret: testJWTSecret}
 
-	m := chi.NewRouter()
-	m.Post("/auth/register", authH.Register)
-	m.Post("/auth/refresh", authH.Refresh)
-	m.Post("/auth/logout", authH.Logout)
+	m := http.NewServeMux()
+	m.HandleFunc("POST /auth/register", authH.Register)
+	m.HandleFunc("POST /auth/refresh", authH.Refresh)
+	m.HandleFunc("POST /auth/logout", authH.Logout)
 
 	sess := registerSession(t, m, "LogoutUser", "logout@example.com")
 
@@ -116,12 +115,12 @@ func TestLogoutAllRevokes(t *testing.T) {
 	authH := &AuthHandler{Pool: pool, JWTSecret: testJWTSecret}
 	usersH := NewUsersHandler(pool)
 
-	m := chi.NewRouter()
-	m.Post("/auth/register", authH.Register)
-	m.Post("/auth/login", authH.Login)
-	m.Post("/auth/refresh", authH.Refresh)
-	m.With(middleware.RequireUser(testJWTSecret)).Post("/auth/logout-all", authH.LogoutAll)
-	m.With(middleware.RequireUser(testJWTSecret)).Get("/users/me", usersH.Me)
+	m := http.NewServeMux()
+	m.HandleFunc("POST /auth/register", authH.Register)
+	m.HandleFunc("POST /auth/login", authH.Login)
+	m.HandleFunc("POST /auth/refresh", authH.Refresh)
+	m.Handle("POST /auth/logout-all", middleware.RequireUser(testJWTSecret)(http.HandlerFunc(authH.LogoutAll)))
+	m.Handle("GET /users/me", middleware.RequireUser(testJWTSecret)(http.HandlerFunc(usersH.Me)))
 
 	sess := registerSession(t, m, "LogoutAllUser", "logoutall@example.com")
 	code, second := postJSON(t, m, "/auth/login", map[string]string{
@@ -167,9 +166,9 @@ func TestUsersMe(t *testing.T) {
 	authH := &AuthHandler{Pool: pool, JWTSecret: testJWTSecret}
 	usersH := NewUsersHandler(pool)
 
-	m := chi.NewRouter()
-	m.Post("/auth/register", authH.Register)
-	m.With(middleware.RequireUser(testJWTSecret)).Get("/users/me", usersH.Me)
+	m := http.NewServeMux()
+	m.HandleFunc("POST /auth/register", authH.Register)
+	m.Handle("GET /users/me", middleware.RequireUser(testJWTSecret)(http.HandlerFunc(usersH.Me)))
 
 	sess := registerSession(t, m, "MeUser", "me@example.com")
 

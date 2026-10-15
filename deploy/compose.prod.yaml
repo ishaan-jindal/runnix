@@ -35,7 +35,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-runnix}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-runnix}?sslmode=disable
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
-      WEBHOOK_SIGNING_SECRET: ${WEBHOOK_SIGNING_SECRET:-}
+      WEBHOOK_SIGNING_SECRET: ${WEBHOOK_SIGNING_SECRET:?WEBHOOK_SIGNING_SECRET is required}
     networks: [default, runnix-public]
     depends_on:
       postgres: { condition: service_healthy }
@@ -55,7 +55,7 @@ services:
       EXEC_WORKERS: "1"
       RUNNER_IMAGE: ghcr.io/ishaan-jindal/runnix-runner-python:${IMAGE_TAG:-latest}
       RUNNER_RUNTIME: runsc
-      WEBHOOK_SIGNING_SECRET: ${WEBHOOK_SIGNING_SECRET:-}
+      WEBHOOK_SIGNING_SECRET: ${WEBHOOK_SIGNING_SECRET:?WEBHOOK_SIGNING_SECRET is required}
       REAP_INTERVAL: 1m
       REAP_STALE_AFTER: 5m
     # Uses the host docker socket.

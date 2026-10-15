@@ -96,23 +96,6 @@ func (q *Queries) GetAPIKey(ctx context.Context, id string) (ApiKey, error) {
 	return i, err
 }
 
-const getRefreshToken = `-- name: GetRefreshToken :one
-SELECT jti, user_id, expires_at, revoked_at, created_at FROM refresh_tokens WHERE jti = $1
-`
-
-func (q *Queries) GetRefreshToken(ctx context.Context, jti pgtype.UUID) (RefreshToken, error) {
-	row := q.db.QueryRow(ctx, getRefreshToken, jti)
-	var i RefreshToken
-	err := row.Scan(
-		&i.Jti,
-		&i.UserID,
-		&i.ExpiresAt,
-		&i.RevokedAt,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const listAPIKeys = `-- name: ListAPIKeys :many
 SELECT id, name, created_at, revoked_at FROM api_keys WHERE tenant_id = $1 ORDER BY created_at DESC
 `
