@@ -3,8 +3,6 @@ package handlers
 import (
 	"context"
 	"net/http"
-
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Health returns liveness. No auth, no DB.
@@ -25,9 +23,4 @@ func ReadyHandler(check func(ctx context.Context) error) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	}
-}
-
-// Metrics exposes Prometheus metrics.
-func Metrics() http.Handler {
-	return promhttp.Handler()
 }

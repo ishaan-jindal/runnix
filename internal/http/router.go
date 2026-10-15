@@ -49,7 +49,6 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	r.Get("/healthz", handlers.Health)
 	r.Get("/readyz", handlers.ReadyHandler(cfg.ReadyCheck))
-	r.Handle("/metrics", handlers.Metrics())
 
 	r.Get("/languages", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"languages": executions.SupportedLanguages})
