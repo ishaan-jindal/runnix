@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/ishaan-jindal/runnix/internal/http/middleware"
 	"github.com/ishaan-jindal/runnix/internal/store"
@@ -172,7 +171,7 @@ func (h *TenantsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "X-Tenant-ID is required")
 		return
 	}
-	idParam := chi.URLParam(r, "id")
+	idParam := r.PathValue("id")
 	if idParam != tenant {
 		writeErr(w, http.StatusForbidden, "tenant id does not match X-Tenant-ID")
 		return

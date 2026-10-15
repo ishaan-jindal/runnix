@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/ishaan-jindal/runnix/internal/http/middleware"
 	"github.com/ishaan-jindal/runnix/internal/store/storedb"
 )
@@ -19,13 +18,13 @@ func TestAPIKeyFlow(t *testing.T) {
 
 	keyAuth := middleware.RequireAuthWithAPIKeys(testJWTSecret, middleware.DBChecker(storedb.New(pool)), apiH.CheckAPIKey)
 
-	m := chi.NewRouter()
-	m.Post("/auth/register", authH.Register)
-	m.With(keyAuth).Post("/tenants/{id}/api-keys", apiH.Create)
-	m.With(keyAuth).Get("/tenants/{id}/api-keys", apiH.List)
-	m.With(keyAuth).Delete("/tenants/{id}/api-keys/{keyId}", apiH.Delete)
-	m.With(keyAuth).Get("/tenants/{id}", tenH.Get)
-	m.With(keyAuth).Post("/executions", execH.Create)
+	m := http.NewServeMux()
+	m.HandleFunc("POST /auth/register", authH.Register)
+	m.Handle("POST /tenants/{id}/api-keys", keyAuth(http.HandlerFunc(apiH.Create)))
+	m.Handle("GET /tenants/{id}/api-keys", keyAuth(http.HandlerFunc(apiH.List)))
+	m.Handle("DELETE /tenants/{id}/api-keys/{keyId}", keyAuth(http.HandlerFunc(apiH.Delete)))
+	m.Handle("GET /tenants/{id}", keyAuth(http.HandlerFunc(tenH.Get)))
+	m.Handle("POST /executions", keyAuth(http.HandlerFunc(execH.Create)))
 
 	sess := registerSession(t, m, "KeyUser", "key@example.com")
 	tenant := sess.Tenants[0].ID
@@ -190,10 +189,10 @@ func TestAPIKeyValidation(t *testing.T) {
 	apiH := NewAPIKeysHandler(pool)
 
 	keyAuth := middleware.RequireAuthWithAPIKeys(testJWTSecret, middleware.DBChecker(storedb.New(pool)), apiH.CheckAPIKey)
-	m := chi.NewRouter()
-	m.Post("/auth/register", authH.Register)
-	m.With(keyAuth).Post("/tenants/{id}/api-keys", apiH.Create)
-	m.With(keyAuth).Get("/tenants/{id}/api-keys", apiH.List)
+	m := http.NewServeMux()
+	m.HandleFunc("POST /auth/register", authH.Register)
+	m.Handle("POST /tenants/{id}/api-keys", keyAuth(http.HandlerFunc(apiH.Create)))
+	m.Handle("GET /tenants/{id}/api-keys", keyAuth(http.HandlerFunc(apiH.List)))
 
 	sess := registerSession(t, m, "KeyValidUser", "keyvalid@example.com")
 	tenant := sess.Tenants[0].ID

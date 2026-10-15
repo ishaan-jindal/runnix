@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/ishaan-jindal/runnix/internal/auth"
 	"github.com/ishaan-jindal/runnix/internal/http/middleware"
 	"github.com/ishaan-jindal/runnix/internal/store"
@@ -78,7 +77,7 @@ func (h *APIKeysHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "X-Tenant-ID is required")
 		return
 	}
-	if chi.URLParam(r, "id") != tenant {
+	if r.PathValue("id") != tenant {
 		writeErr(w, http.StatusForbidden, "tenant id does not match X-Tenant-ID")
 		return
 	}
@@ -161,7 +160,7 @@ func (h *APIKeysHandler) List(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "X-Tenant-ID is required")
 		return
 	}
-	if chi.URLParam(r, "id") != tenant {
+	if r.PathValue("id") != tenant {
 		writeErr(w, http.StatusForbidden, "tenant id does not match X-Tenant-ID")
 		return
 	}
@@ -209,7 +208,7 @@ func (h *APIKeysHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "X-Tenant-ID is required")
 		return
 	}
-	if chi.URLParam(r, "id") != tenant {
+	if r.PathValue("id") != tenant {
 		writeErr(w, http.StatusForbidden, "tenant id does not match X-Tenant-ID")
 		return
 	}
@@ -217,7 +216,7 @@ func (h *APIKeysHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "authentication required to revoke an API key")
 		return
 	}
-	keyID := chi.URLParam(r, "keyId")
+	keyID := r.PathValue("keyId")
 	if keyID == "" {
 		writeErr(w, http.StatusNotFound, "API key not found")
 		return

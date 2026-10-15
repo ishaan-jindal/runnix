@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/ishaan-jindal/runnix/internal/executions"
 	"github.com/ishaan-jindal/runnix/internal/http/middleware"
 	"github.com/ishaan-jindal/runnix/internal/quotas"
@@ -270,7 +269,7 @@ func (h *ExecutionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid X-Tenant-ID")
 		return
 	}
-	id, err := store.ParsePg(chi.URLParam(r, "id"))
+	id, err := store.ParsePg(r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid execution id")
 		return

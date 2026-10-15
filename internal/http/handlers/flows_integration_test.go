@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/ishaan-jindal/runnix/internal/http/middleware"
 	rnats "github.com/ishaan-jindal/runnix/internal/nats"
 	"github.com/ishaan-jindal/runnix/internal/store/storedb"
@@ -49,11 +48,11 @@ func TestExecutionSubmitFlow(t *testing.T) {
 	execH := &ExecutionsHandler{Store: storedb.New(pool), Publisher: nc}
 	authH := &AuthHandler{Pool: pool, JWTSecret: testJWTSecret}
 	authed := middleware.RequireAuth(testJWTSecret, middleware.DBChecker(storedb.New(pool)))
-	m := chi.NewRouter()
-	m.Post("/auth/register", authH.Register)
-	m.With(authed).Post("/executions", execH.Create)
-	m.With(authed).Get("/executions", execH.List)
-	m.With(authed).Get("/executions/{id}", execH.Get)
+	m := http.NewServeMux()
+	m.HandleFunc("POST /auth/register", authH.Register)
+	m.Handle("POST /executions", authed(http.HandlerFunc(execH.Create)))
+	m.Handle("GET /executions", authed(http.HandlerFunc(execH.List)))
+	m.Handle("GET /executions/{id}", authed(http.HandlerFunc(execH.Get)))
 
 	sess := registerSession(t, m, "ExecUser", "exec@example.com")
 	tenant := sess.Tenants[0].ID
@@ -151,11 +150,11 @@ func TestExecutionPublishFailure(t *testing.T) {
 	}
 	authH := &AuthHandler{Pool: pool, JWTSecret: testJWTSecret}
 	authed := middleware.RequireAuth(testJWTSecret, middleware.DBChecker(storedb.New(pool)))
-	m := chi.NewRouter()
-	m.Post("/auth/register", authH.Register)
-	m.With(authed).Post("/executions", execH.Create)
-	m.With(authed).Get("/executions", execH.List)
-	m.With(authed).Get("/executions/{id}", execH.Get)
+	m := http.NewServeMux()
+	m.HandleFunc("POST /auth/register", authH.Register)
+	m.Handle("POST /executions", authed(http.HandlerFunc(execH.Create)))
+	m.Handle("GET /executions", authed(http.HandlerFunc(execH.List)))
+	m.Handle("GET /executions/{id}", authed(http.HandlerFunc(execH.Get)))
 
 	sess := registerSession(t, m, "FailUser", "fail@example.com")
 	headers := authHeaders(sess, sess.Tenants[0].ID)
@@ -190,10 +189,10 @@ func TestTenantCreateGetFlow(t *testing.T) {
 	authH := &AuthHandler{Pool: pool, JWTSecret: testJWTSecret}
 	tenH := NewTenantsHandler(pool)
 	authed := middleware.RequireAuth(testJWTSecret, middleware.DBChecker(storedb.New(pool)))
-	m := chi.NewRouter()
-	m.Post("/auth/register", authH.Register)
-	m.With(authed).Post("/tenants", tenH.Create)
-	m.With(authed).Get("/tenants/{id}", tenH.Get)
+	m := http.NewServeMux()
+	m.HandleFunc("POST /auth/register", authH.Register)
+	m.Handle("POST /tenants", authed(http.HandlerFunc(tenH.Create)))
+	m.Handle("GET /tenants/{id}", authed(http.HandlerFunc(tenH.Get)))
 
 	sess := registerSession(t, m, "OrgUser", "org@example.com")
 	personal := sess.Tenants[0].ID

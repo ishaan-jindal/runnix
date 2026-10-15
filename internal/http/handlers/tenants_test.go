@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/ishaan-jindal/runnix/internal/auth"
 	"github.com/ishaan-jindal/runnix/internal/http/middleware"
 	"github.com/ishaan-jindal/runnix/internal/store/storedb"
@@ -66,8 +65,8 @@ func authedCreate(t *testing.T, h *TenantsHandler, body any) (int, []byte) {
 
 func TestTenantGet(t *testing.T) {
 	h := &TenantsHandler{Store: &fakeTenantStore{tenant: testTenant(t)}}
-	m := chi.NewRouter()
-	m.Get("/tenants/{id}", h.Get)
+	m := http.NewServeMux()
+	m.HandleFunc("GET /tenants/{id}", h.Get)
 	headers := map[string]string{"X-Tenant-ID": testTenantID}
 
 	t.Run("success", func(t *testing.T) {
@@ -91,8 +90,8 @@ func TestTenantGet(t *testing.T) {
 
 	t.Run("not found", func(t *testing.T) {
 		h404 := &TenantsHandler{Store: &fakeTenantStore{getErr: pgx.ErrNoRows}}
-		m404 := chi.NewRouter()
-		m404.Get("/tenants/{id}", h404.Get)
+		m404 := http.NewServeMux()
+		m404.HandleFunc("GET /tenants/{id}", h404.Get)
 		code, _ := doJSON(t, m404, http.MethodGet, "/tenants/"+testTenantID, headers, nil)
 		if code != http.StatusNotFound {
 			t.Fatalf("= %d, want 404", code)

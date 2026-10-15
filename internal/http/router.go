@@ -6,8 +6,6 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/ishaan-jindal/runnix/internal/executions"
 	"github.com/ishaan-jindal/runnix/internal/http/handlers"
 	"github.com/ishaan-jindal/runnix/internal/http/middleware"
@@ -40,29 +38,27 @@ type RouterConfig struct {
 	ReadyCheck func(ctx context.Context) error
 }
 
-// NewRouter builds the chi router. Auth routes are live when Pool is set;
+// NewRouter builds the stdlib mux. Auth routes are live when Pool is set;
 // tenant routes are live executions/tenants handlers when Pool is set.
 func NewRouter(cfg RouterConfig) http.Handler {
-	r := chi.NewRouter()
-	r.Use(chimw.Recoverer)
-	r.Use(middleware.RequestID)
+	mux := http.NewServeMux()
 
-	r.Get("/healthz", handlers.Health)
-	r.Get("/readyz", handlers.ReadyHandler(cfg.ReadyCheck))
+	mux.HandleFunc("GET /healthz", handlers.Health)
+	mux.HandleFunc("GET /readyz", handlers.ReadyHandler(cfg.ReadyCheck))
 
-	r.Get("/languages", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /languages", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"languages": executions.SupportedLanguages})
 	})
 
 	if cfg.Pool != nil {
 		authH := &handlers.AuthHandler{Pool: cfg.Pool, JWTSecret: cfg.JWTSecret}
 		usersH := handlers.NewUsersHandler(cfg.Pool)
-		r.Post("/auth/register", authH.Register)
-		r.Post("/auth/login", authH.Login)
-		r.Post("/auth/refresh", authH.Refresh)
-		r.Post("/auth/logout", authH.Logout)
-		r.With(middleware.RequireUser(cfg.JWTSecret)).Post("/auth/logout-all", authH.LogoutAll)
-		r.With(middleware.RequireUser(cfg.JWTSecret)).Get("/users/me", usersH.Me)
+		mux.HandleFunc("POST /auth/register", authH.Register)
+		mux.HandleFunc("POST /auth/login", authH.Login)
+		mux.HandleFunc("POST /auth/refresh", authH.Refresh)
+		mux.HandleFunc("POST /auth/logout", authH.Logout)
+		mux.Handle("POST /auth/logout-all", middleware.RequireUser(cfg.JWTSecret)(http.HandlerFunc(authH.LogoutAll)))
+		mux.Handle("GET /users/me", middleware.RequireUser(cfg.JWTSecret)(http.HandlerFunc(usersH.Me)))
 
 		if cfg.MembershipChecker == nil {
 			queries := storedb.New(cfg.Pool)
@@ -80,7 +76,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			{"POST", "/auth/logout-all"},
 			{"GET", "/users/me"},
 		} {
-			r.Method(rt[0], rt[1], http.HandlerFunc(stub))
+			mux.HandleFunc(rt[0]+" "+rt[1], stub)
 		}
 	}
 
@@ -115,29 +111,40 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	}
 
 	// Tenant-scoped routes. Auth is enforced when JWTSecret is set.
-	r.Group(func(r chi.Router) {
-		if cfg.JWTSecret != "" {
-			check := cfg.MembershipChecker
-			if check == nil {
-				check = func(_ context.Context, _, _ string) (string, bool) { return "", false }
-			}
-			var keys middleware.APIKeyChecker
-			if cfg.Pool != nil {
-				keys = handlers.NewAPIKeysHandler(cfg.Pool).CheckAPIKey
-			}
-			r.Use(middleware.RequireAuthWithAPIKeys(cfg.JWTSecret, check, keys))
+	tenantAuth := func(next http.Handler) http.Handler { return next }
+	if cfg.JWTSecret != "" {
+		check := cfg.MembershipChecker
+		if check == nil {
+			check = func(_ context.Context, _, _ string) (string, bool) { return "", false }
 		}
-		r.Post("/executions", createExec)
-		r.Get("/executions", listExec)
-		r.Get("/executions/{id}", getExec)
-		r.Post("/tenants", createTenant)
-		r.Get("/tenants/{id}", getTenant)
-		r.Post("/tenants/{id}/api-keys", createKey)
-		r.Get("/tenants/{id}/api-keys", listKeys)
-		r.Delete("/tenants/{id}/api-keys/{keyId}", deleteKey)
-	})
+		var keys middleware.APIKeyChecker
+		if cfg.Pool != nil {
+			keys = handlers.NewAPIKeysHandler(cfg.Pool).CheckAPIKey
+		}
+		tenantAuth = middleware.RequireAuthWithAPIKeys(cfg.JWTSecret, check, keys)
+	}
+	mux.Handle("POST /executions", tenantAuth(http.HandlerFunc(createExec)))
+	mux.Handle("GET /executions", tenantAuth(http.HandlerFunc(listExec)))
+	mux.Handle("GET /executions/{id}", tenantAuth(http.HandlerFunc(getExec)))
+	mux.Handle("POST /tenants", tenantAuth(http.HandlerFunc(createTenant)))
+	mux.Handle("GET /tenants/{id}", tenantAuth(http.HandlerFunc(getTenant)))
+	mux.Handle("POST /tenants/{id}/api-keys", tenantAuth(http.HandlerFunc(createKey)))
+	mux.Handle("GET /tenants/{id}/api-keys", tenantAuth(http.HandlerFunc(listKeys)))
+	mux.Handle("DELETE /tenants/{id}/api-keys/{keyId}", tenantAuth(http.HandlerFunc(deleteKey)))
 
-	return r
+	return recoverer(middleware.RequestID(mux))
+}
+
+// recoverer restores chi Recoverer behavior (500 on panics).
+func recoverer(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
 }
 
 // errPublisher fails every publish; used when NATS is unreachable so the
