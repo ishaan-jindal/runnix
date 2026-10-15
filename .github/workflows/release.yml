@@ -13,8 +13,11 @@ on:
 permissions:
   contents: read
 
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
 concurrency:
-  group: release-${{ github.ref_name }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -27,7 +30,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref_name }}
+          ref: ${{ env.TAG }}
+
+      - name: Validate tag
+        run: |
+          case "$TAG" in
+            v[0-9]*) ;;
+            *) echo "::error::Tag must look like vX.Y.Z (got $TAG)"; exit 1 ;;
+          esac
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -56,7 +66,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref_name }}
+          ref: ${{ env.TAG }}
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -95,12 +105,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref_name }}
+          ref: ${{ env.TAG }}
 
       - name: Resolve tag
         id: tag
         run: |
-          TAG="${{ inputs.tag || github.ref_name }}"
           case "$TAG" in
             v[0-9]*) ;;
             *) echo "::error::Tag must look like vX.Y.Z (got $TAG)"; exit 1 ;;
@@ -125,9 +134,10 @@ jobs:
       # release notes, with the `##` header line stripped. Falls back to
       # `Release <tag>` when the entry is missing.
       - name: Extract changelog entry
+        env:
+          VER: ${{ steps.tag.outputs.version }}
+          NOTES_TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          VER="${{ steps.tag.outputs.version }}"
-          TAG="${{ steps.tag.outputs.tag }}"
           python3 -c "
           import re, sys
           ver, tag = sys.argv[1], sys.argv[2]
@@ -149,18 +159,17 @@ jobs:
           except Exception:
               with open('release_notes.md', 'w') as out:
                   out.write('Release ' + tag)
-          " "$VER" "$TAG"
+          " "$VER" "$NOTES_TAG"
 
       - name: Create or update release
         run: |
-          TAG="${{ steps.tag.outputs.tag }}"
-
           if ! gh release create "$TAG" \
             --title "$TAG" \
             --notes-file release_notes.md \
             dist/*; then
             echo "Release $TAG may already exist; uploading assets to it..."
             gh release upload "$TAG" dist/* --clobber
+            gh release edit "$TAG" --notes-file release_notes.md
           fi
 
           gh release view "$TAG" --json tagName,assets --jq '.tagName + " has " + (.assets | length | tostring) + " assets"'
