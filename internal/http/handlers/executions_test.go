@@ -33,18 +33,20 @@ func mustPgUUID(t *testing.T, s string) pgtype.UUID {
 
 // fakeExecutionStore records calls and returns canned results.
 type fakeExecutionStore struct {
-	createRow  storedb.CreateExecutionRow
-	createErr  error
-	lastCreate storedb.CreateExecutionParams
-	getRow     storedb.GetExecutionRow
-	getErr     error
-	listRows   []storedb.ListExecutionsRow
-	listErr    error
-	lastList   storedb.ListExecutionsParams
-	failed     []storedb.SetExecutionFailedParams
+	createRow   storedb.CreateExecutionRow
+	createErr   error
+	createCalls int
+	lastCreate  storedb.CreateExecutionParams
+	getRow      storedb.GetExecutionRow
+	getErr      error
+	listRows    []storedb.ListExecutionsRow
+	listErr     error
+	lastList    storedb.ListExecutionsParams
+	failed      []storedb.SetExecutionFailedParams
 }
 
 func (f *fakeExecutionStore) CreateExecution(_ context.Context, arg storedb.CreateExecutionParams) (storedb.CreateExecutionRow, error) {
+	f.createCalls++
 	f.lastCreate = arg
 	return f.createRow, f.createErr
 }

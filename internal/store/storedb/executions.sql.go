@@ -11,6 +11,35 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countActiveExecutions = `-- name: CountActiveExecutions :one
+SELECT count(*)::bigint FROM executions WHERE tenant_id = $1 AND status IN ('queued', 'running')
+`
+
+// Queued + running rows; backs the per-tenant concurrent submit quota.
+func (q *Queries) CountActiveExecutions(ctx context.Context, tenantID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveExecutions, tenantID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countExecutionsSince = `-- name: CountExecutionsSince :one
+SELECT count(*)::bigint FROM executions WHERE tenant_id = $1 AND created_at >= $2
+`
+
+type CountExecutionsSinceParams struct {
+	TenantID  pgtype.UUID        `json:"tenant_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+// Submits in the trailing window; backs the per-tenant hourly submit quota.
+func (q *Queries) CountExecutionsSince(ctx context.Context, arg CountExecutionsSinceParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countExecutionsSince, arg.TenantID, arg.CreatedAt)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createExecution = `-- name: CreateExecution :one
 INSERT INTO executions (tenant_id, language, source, stdin, timeout_s, webhook_url)
 VALUES ($1, $2, $3, $4, $5, $6)

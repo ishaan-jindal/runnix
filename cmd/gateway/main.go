@@ -53,6 +53,7 @@ func main() {
 		JWTSecret:           cfg.JWTSecret,
 		WebhookSecret:       cfg.WebhookSigningSecret,
 		WebhookAllowPrivate: cfg.WebhookAllowPrivate,
+		QuotasEnabled:       cfg.QuotasEnabled,
 	}
 	if db != nil {
 		routerCfg.Pool = db.Pool

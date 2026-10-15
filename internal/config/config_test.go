@@ -7,7 +7,7 @@ import (
 )
 
 func TestLoadDefaults(t *testing.T) {
-	for _, k := range []string{"PORT", "DATABASE_URL", "NATS_URL", "JWT_SECRET", "ENV", "EXEC_WORKERS", "RUNNER_IMAGE", "RUNNER_RUNTIME", "WEBHOOK_SIGNING_SECRET", "WEBHOOK_ALLOW_PRIVATE", "REAP_INTERVAL", "REAP_STALE_AFTER"} {
+	for _, k := range []string{"PORT", "DATABASE_URL", "NATS_URL", "JWT_SECRET", "ENV", "EXEC_WORKERS", "RUNNER_IMAGE", "RUNNER_RUNTIME", "WEBHOOK_SIGNING_SECRET", "WEBHOOK_ALLOW_PRIVATE", "REAP_INTERVAL", "REAP_STALE_AFTER", "QUOTAS_ENABLED"} {
 		if err := os.Unsetenv(k); err != nil {
 			t.Fatal(err)
 		}
@@ -32,6 +32,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.WebhookSigningSecret != "" || cfg.WebhookAllowPrivate {
 		t.Fatalf("webhook defaults = %+v", cfg)
 	}
+	if !cfg.QuotasEnabled {
+		t.Fatalf("quotas default = %+v, want enabled", cfg)
+	}
 }
 
 func TestLoadDispatcherEnv(t *testing.T) {
@@ -44,6 +47,17 @@ func TestLoadDispatcherEnv(t *testing.T) {
 	}
 	if cfg.ExecWorkers != 4 || cfg.RunnerImage != "python:3.12-slim" || cfg.RunnerRuntime != "runc" {
 		t.Fatalf("dispatcher config = %+v", cfg)
+	}
+}
+
+func TestLoadQuotasEnv(t *testing.T) {
+	t.Setenv("QUOTAS_ENABLED", "false")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() = %v", err)
+	}
+	if cfg.QuotasEnabled {
+		t.Fatalf("quotas config = %+v, want disabled", cfg)
 	}
 }
 
@@ -87,6 +101,7 @@ func TestLoadRejectsBadWebhookAndReaperEnv(t *testing.T) {
 		{"REAP_INTERVAL", "soon"},
 		{"REAP_INTERVAL", "0s"},
 		{"REAP_STALE_AFTER", "-5m"},
+		{"QUOTAS_ENABLED", "yesplease"},
 	} {
 		t.Run(tc.key+"="+tc.val, func(t *testing.T) {
 			t.Setenv(tc.key, tc.val)

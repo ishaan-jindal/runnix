@@ -30,6 +30,9 @@ type Config struct {
 	// Stale-running reaper (dispatcher).
 	ReapInterval   time.Duration // REAP_INTERVAL: sweep frequency
 	ReapStaleAfter time.Duration // REAP_STALE_AFTER: "running" older than this is failed; must exceed the 60s max timeout_s
+
+	// Submit quotas (gateway). QUOTAS_ENABLED=false skips per-tenant checks.
+	QuotasEnabled bool
 }
 
 // Load reads configuration from the environment with sane local defaults.
@@ -44,6 +47,7 @@ func Load() (Config, error) {
 		RunnerRuntime:  "runsc",
 		ReapInterval:   time.Minute,
 		ReapStaleAfter: 5 * time.Minute,
+		QuotasEnabled:  true,
 	}
 
 	if v := os.Getenv("PORT"); v != "" {
@@ -81,6 +85,13 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("invalid WEBHOOK_ALLOW_PRIVATE %q", v)
 		}
 		cfg.WebhookAllowPrivate = b
+	}
+	if v := os.Getenv("QUOTAS_ENABLED"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid QUOTAS_ENABLED %q", v)
+		}
+		cfg.QuotasEnabled = b
 	}
 	if v := os.Getenv("REAP_INTERVAL"); v != "" {
 		d, err := time.ParseDuration(v)

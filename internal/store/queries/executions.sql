@@ -39,3 +39,11 @@ WHERE id = $1 AND status = 'running';
 UPDATE executions
 SET status = 'failed', stderr = sqlc.arg(stderr), updated_at = now()
 WHERE status = 'running' AND updated_at < now() - make_interval(secs => sqlc.arg(stale_secs)::int);
+
+-- name: CountExecutionsSince :one
+-- Submits in the trailing window; backs the per-tenant hourly submit quota.
+SELECT count(*)::bigint FROM executions WHERE tenant_id = $1 AND created_at >= $2;
+
+-- name: CountActiveExecutions :one
+-- Queued + running rows; backs the per-tenant concurrent submit quota.
+SELECT count(*)::bigint FROM executions WHERE tenant_id = $1 AND status IN ('queued', 'running');
