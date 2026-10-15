@@ -1,6 +1,8 @@
 package dispatcher
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -14,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/docker/docker/api/types/build"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/google/uuid"
 	"github.com/ishaan-jindal/runnix/internal/store"
@@ -29,7 +32,84 @@ import (
 	rnats "github.com/ishaan-jindal/runnix/internal/nats"
 )
 
-const intImage = "python:3.12-slim"
+// intImageTag is the local build of runner/docker/Dockerfile used by sandbox
+// tests so they track the real runner instead of drifting on raw upstream.
+// Override with RUNNER_IMAGE to reuse a prebuilt image (e.g. in CI).
+const intImageTag = "runnix-runner-python:test"
+
+// skipNoDocker fails in CI so daemon/pull outages are visible, but skips
+// locally so unit runs stay green without Docker.
+func skipNoDocker(t *testing.T, format string, args ...any) {
+	t.Helper()
+	if os.Getenv("CI") == "true" {
+		t.Fatalf(format, args...)
+	}
+	t.Skipf(format, args...)
+}
+
+var (
+	intImageOnce     sync.Once
+	intImageBuilt    string
+	intImageBuildErr error
+)
+
+// intTestImage builds runner/docker/Dockerfile once (or honors RUNNER_IMAGE)
+// and returns the tag sandbox tests should run.
+func intTestImage(t *testing.T, cli *dockerclient.Client) string {
+	t.Helper()
+	if v := os.Getenv("RUNNER_IMAGE"); v != "" {
+		return v
+	}
+	intImageOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		img, err := buildRunnerImage(ctx, cli)
+		if err != nil {
+			intImageBuildErr = err
+			return
+		}
+		intImageBuilt = img
+	})
+	if intImageBuildErr != nil || intImageBuilt == "" {
+		skipNoDocker(t, "could not build runner image: %v", intImageBuildErr)
+	}
+	return intImageBuilt
+}
+
+// buildRunnerImage tars runner/docker/Dockerfile as a build context and
+// builds intImageTag. PullParent covers a cold daemon (same pull cost as the
+// old raw-image EnsureImage path).
+func buildRunnerImage(ctx context.Context, cli *dockerclient.Client) (string, error) {
+	df, err := os.ReadFile("../../runner/docker/Dockerfile")
+	if err != nil {
+		return "", err
+	}
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := tw.WriteHeader(&tar.Header{Name: "Dockerfile", Mode: 0o644, Size: int64(len(df))}); err != nil {
+		return "", err
+	}
+	if _, err := tw.Write(df); err != nil {
+		return "", err
+	}
+	if err := tw.Close(); err != nil {
+		return "", err
+	}
+	resp, err := cli.ImageBuild(ctx, &buf, build.ImageBuildOptions{
+		Tags:       []string{intImageTag},
+		Dockerfile: "Dockerfile",
+		Remove:     true,
+		PullParent: true,
+	})
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return "", err
+	}
+	return intImageTag, nil
+}
 
 func intTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
@@ -45,7 +125,7 @@ func intTestPool(t *testing.T) *pgxpool.Pool {
 		),
 	)
 	if err != nil {
-		t.Skipf("docker unavailable, skipping integration test: %v", err)
+		skipNoDocker(t, "docker unavailable, skipping integration test: %v", err)
 	}
 	t.Cleanup(func() {
 		cctx, cc := context.WithTimeout(context.Background(), time.Minute)
@@ -76,7 +156,7 @@ func intTestNATS(t *testing.T) *rnats.Client {
 		testcontainers.WithWaitStrategy(wait.ForListeningPort("4222/tcp")),
 	)
 	if err != nil {
-		t.Skipf("docker unavailable, skipping integration test: %v", err)
+		skipNoDocker(t, "docker unavailable, skipping integration test: %v", err)
 	}
 	t.Cleanup(func() {
 		cctx, cc := context.WithTimeout(context.Background(), time.Minute)
@@ -106,16 +186,18 @@ func intDocker(t *testing.T) *dockerclient.Client {
 	}
 	t.Cleanup(func() { _ = cli.Close() })
 	if _, err := cli.Ping(context.Background()); err != nil {
-		t.Skipf("docker daemon unavailable, skipping integration test: %v", err)
+		skipNoDocker(t, "docker daemon unavailable, skipping integration test: %v", err)
 	}
 	return cli
 }
 
 func intRunner(t *testing.T) Runner {
 	t.Helper()
-	r := NewDockerRunner(intDocker(t), intImage, "")
+	cli := intDocker(t)
+	image := intTestImage(t, cli)
+	r := NewDockerRunner(cli, image, "")
 	if err := r.EnsureImage(context.Background()); err != nil {
-		t.Skipf("could not pull %s: %v", intImage, err)
+		skipNoDocker(t, "could not pull %s: %v", image, err)
 	}
 	return r
 }

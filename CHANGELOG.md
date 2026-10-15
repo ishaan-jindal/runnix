@@ -82,5 +82,6 @@ sandboxed, metered by tenant, with signed completion webhooks.
   (25P02); retries now run in per-attempt savepoints (register and
   org-tenant creation).
 
-[Unreleased]: https://github.com/ishaan-jindal/runnix/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ishaan-jindal/runnix/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/ishaan-jindal/runnix/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ishaan-jindal/runnix/releases/tag/v0.1.0

@@ -227,13 +227,19 @@ func (r *dockerRunner) wait(ctx context.Context, id string, timeout time.Duratio
 	}
 
 	if res.TimedOut {
+		// The runCtx channels are tied to the expired runCtx and must not
+		// be reused: open a fresh wait on a TTL-bounded background ctx
+		// before killing so the post-kill exit is observed reliably.
+		killCtx, killCancel := context.WithTimeout(context.Background(), containerTTL)
+		defer killCancel()
+		waitCh, errCh := r.cli.ContainerWait(killCtx, id, container.WaitConditionNotRunning)
 		// Hard-kill, then wait for the container to actually stop so logs
 		// (partial output) are readable before we remove it.
 		_ = r.cli.ContainerKill(context.Background(), id, "SIGKILL")
 		select {
 		case <-waitCh:
 		case <-errCh:
-		case <-time.After(containerTTL):
+		case <-killCtx.Done():
 		}
 	}
 	return res, nil
