@@ -198,6 +198,34 @@ func (q *Queries) ListExecutions(ctx context.Context, arg ListExecutionsParams) 
 	return items, nil
 }
 
+const listStaleQueuedExecutions = `-- name: ListStaleQueuedExecutions :many
+SELECT id FROM executions
+WHERE status = 'queued' AND created_at < now() - make_interval(secs => $1::int)
+`
+
+// Ids of executions stuck "queued" because their submit message never reached
+// a worker (e.g. JetStream gave up at MaxDeliver). Backs the stale-queued
+// reaper sweep; created_at is the moment the row entered "queued".
+func (q *Queries) ListStaleQueuedExecutions(ctx context.Context, staleSecs int32) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listStaleQueuedExecutions, staleSecs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markExecutionRunning = `-- name: MarkExecutionRunning :execrows
 UPDATE executions
 SET status = 'running', updated_at = now()
@@ -209,6 +237,28 @@ WHERE id = $1 AND status = 'queued'
 // (at-least-once) see 0 rows and are acked and skipped.
 func (q *Queries) MarkExecutionRunning(ctx context.Context, id pgtype.UUID) (int64, error) {
 	result, err := q.db.Exec(ctx, markExecutionRunning, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const markStaleQueuedFailed = `-- name: MarkStaleQueuedFailed :execrows
+UPDATE executions
+SET status = 'failed', stderr = $1, updated_at = now()
+WHERE id = $2 AND status = 'queued'
+`
+
+type MarkStaleQueuedFailedParams struct {
+	Stderr string      `json:"stderr"`
+	ID     pgtype.UUID `json:"id"`
+}
+
+// Fails a stale queued execution found by ListStaleQueuedExecutions. The
+// status guard re-checks at UPDATE time, so a row claimed (queued->running)
+// between the SELECT and this UPDATE is left alone.
+func (q *Queries) MarkStaleQueuedFailed(ctx context.Context, arg MarkStaleQueuedFailedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markStaleQueuedFailed, arg.Stderr, arg.ID)
 	if err != nil {
 		return 0, err
 	}

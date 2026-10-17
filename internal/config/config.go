@@ -26,9 +26,10 @@ type Config struct {
 	WebhookSigningSecret string // WEBHOOK_SIGNING_SECRET: HMAC-SHA256 key for signed delivery
 	WebhookAllowPrivate  bool   // WEBHOOK_ALLOW_PRIVATE: allow private/loopback webhook hosts (dev/tests)
 
-	// Stale-running reaper (dispatcher).
-	ReapInterval   time.Duration // REAP_INTERVAL: sweep frequency
-	ReapStaleAfter time.Duration // REAP_STALE_AFTER: "running" older than this is failed; must exceed the 60s max timeout_s
+	// Reaper (dispatcher).
+	ReapInterval     time.Duration // REAP_INTERVAL: sweep frequency
+	ReapStaleAfter   time.Duration // REAP_STALE_AFTER: "running" older than this is failed; must exceed the 60s max timeout_s
+	StaleQueuedAfter time.Duration // STALE_QUEUED_AFTER: "queued" older than this is failed (lost submit message); must exceed AckWait (90s) x MaxDeliver (5) plus margin
 
 	// Submit quotas (gateway). QUOTAS_ENABLED=false skips per-tenant checks.
 	QuotasEnabled bool
@@ -37,16 +38,17 @@ type Config struct {
 // Load reads configuration from the environment with sane local defaults.
 func Load() (Config, error) {
 	cfg := Config{
-		Port:           4000,
-		DatabaseURL:    "postgres://runnix:runnix@localhost:5432/runnix?sslmode=disable",
-		NATSURL:        "nats://localhost:4222",
-		Environment:    "development",
-		ExecWorkers:    2,
-		RunnerImage:    "runnix-runner-python:local",
-		RunnerRuntime:  "runsc",
-		ReapInterval:   time.Minute,
-		ReapStaleAfter: 5 * time.Minute,
-		QuotasEnabled:  true,
+		Port:             4000,
+		DatabaseURL:      "postgres://runnix:runnix@localhost:5432/runnix?sslmode=disable",
+		NATSURL:          "nats://localhost:4222",
+		Environment:      "development",
+		ExecWorkers:      2,
+		RunnerImage:      "runnix-runner-python:local",
+		RunnerRuntime:    "runsc",
+		ReapInterval:     time.Minute,
+		ReapStaleAfter:   5 * time.Minute,
+		StaleQueuedAfter: 10 * time.Minute,
+		QuotasEnabled:    true,
 	}
 
 	if v := os.Getenv("PORT"); v != "" {
@@ -105,6 +107,13 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("invalid REAP_STALE_AFTER %q", v)
 		}
 		cfg.ReapStaleAfter = d
+	}
+	if v := os.Getenv("STALE_QUEUED_AFTER"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return Config{}, fmt.Errorf("invalid STALE_QUEUED_AFTER %q", v)
+		}
+		cfg.StaleQueuedAfter = d
 	}
 	cfg.JWTSecret = os.Getenv("JWT_SECRET")
 	if cfg.Environment != "development" && cfg.JWTSecret == "" {
