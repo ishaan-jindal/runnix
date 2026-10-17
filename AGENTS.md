@@ -43,6 +43,9 @@ CI (`ci.yml`) runs vet + race tests + lint + build on every push/PR.
   with" or "Made with" lines in commits, PR or issue titles and bodies, or
   comments. Strip any that a tool inserts automatically.
 - No `phase` wording in commits/code/docs — use `deferred: <topic>` tags.
+  Stacked PRs: reword any draft commit that would land in `main` with
+  `git rebase -i` + `squash`/`reword` before the base PR merges, or the
+  no-`phase` rule fails on first push.
 - Storage changes: new `internal/store/migrations/NNNN_*.sql` (embedded,
   idempotent, replica-safe) + `queries/*.sql`, then `just generate`.
   Migrations apply automatically at service startup.
