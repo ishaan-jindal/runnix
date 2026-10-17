@@ -6,3 +6,5 @@
 *.test
 coverage.out
 *.env
+
+.slim/deepwork/
