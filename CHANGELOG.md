@@ -50,6 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `webhook_url` from the row it claims, so webhooks now fire for the
   persisted URL and the queue no longer duplicates up to 100 KiB of source
   per message.
+- Quota checks bound the per-tenant advisory-lock wait to 2 s
+  (`SET LOCAL lock_timeout`). A wedged backend can no longer pile up
+  blocked submits — and with them shared pool connections — until unrelated
+  tenants stall; a timeout fails open as before.
 
 ## [0.1.1] - 2026-09-12
 
