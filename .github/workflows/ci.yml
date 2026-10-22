@@ -1,22 +1,28 @@
 name: ci
 on:
+  # A same-repo PR emits push and pull_request for one commit, and the two
+  # refs differ so concurrency cannot collapse them. Push stays on main.
+  # pull_request is unfiltered so stacked PRs (any base) still run checks.
+  # v* tags are not branch pushes; release.yml gates those.
   push:
-    # v* tags are vetted/tested/built by the release gate; skip the duplicate run here.
-    tags-ignore:
-      - "v*"
+    branches:
+      - main
   pull_request:
 permissions:
   contents: read
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       min_coverage: "35.2"
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
