@@ -39,6 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Gateway HTTP server sets `ReadHeaderTimeout` (5 s), `ReadTimeout` (15 s),
+  `WriteTimeout` (30 s), and `IdleTimeout` (60 s), so slow or stuck clients
+  can no longer hold connections open indefinitely.
 - Dispatcher retries: a sandbox failure before the container starts
   (`create`/`attach`/`start`) returns the execution to `queued` and lets
   JetStream redelivery re-claim it, so a transient Docker blip no longer

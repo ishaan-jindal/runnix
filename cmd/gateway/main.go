@@ -82,7 +82,20 @@ func main() {
 		log.Print("gateway: WARNING: ENV=development with empty JWT_SECRET — tenant routes are unauthenticated")
 	}
 	handler := gwhttp.NewRouter(routerCfg)
-	srv := &http.Server{Addr: cfg.Addr(), Handler: handler}
+	srv := &http.Server{
+		Addr:    cfg.Addr(),
+		Handler: handler,
+		// Headers are tiny; a client that cannot send them in 5s is stuck.
+		ReadHeaderTimeout: 5 * time.Second,
+		// Request bodies are small JSON payloads (source + stdin).
+		ReadTimeout: 15 * time.Second,
+		// Covers the whole response lifetime. No endpoint long-polls — submit
+		// returns 202 and polls are separate requests — so 30s is generous
+		// enough for a slow uplink while still bounding a stuck handler.
+		WriteTimeout: 30 * time.Second,
+		// Keep-alive connections are cheap but not free.
+		IdleTimeout: 60 * time.Second,
+	}
 
 	env := cfg.Environment
 	if env == "" {
