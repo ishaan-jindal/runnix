@@ -13,6 +13,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      min_coverage: "35.2"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -22,7 +24,12 @@ jobs:
       - uses: extractions/setup-just@v2
       - run: go mod tidy -diff
       - run: go vet ./...
-      - run: go test -race ./...
+      - run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+      - name: Coverage gate
+        run: |
+          total=$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}' | tr -d '%')
+          echo "total coverage: ${total}% (min_coverage: ${min_coverage}%)"
+          awk -v t="$total" -v m="$min_coverage" 'BEGIN { exit !(t >= m) }'
       - uses: golangci/golangci-lint-action@v8
         with:
           version: v2.13.2

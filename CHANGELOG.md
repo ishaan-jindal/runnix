@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Retry-After` header (seconds). Checks are serialized per tenant via a
   Postgres advisory lock and fail open when the quota path errors.
   Disable with `QUOTAS_ENABLED=false`.
+- Stale-queued reaper: when a JetStream message is dropped (e.g.
+  `MaxDeliver` exceeded) but the row stays `queued`, the dispatcher's
+  reaper sweep now marks it `failed` with reason `stale_queued` after
+  `STALE_QUEUED_AFTER` (default `10m`, must exceed `AckWait 90s` ×
+  `MaxDeliver 5`; set `0` to disable). Counted as `failed` for quota
+  purposes, so a poison submit no longer permanently consumes a free
+  tier's active cap with a misleading `429`.
 
 ## [0.1.1] - 2026-09-12
 

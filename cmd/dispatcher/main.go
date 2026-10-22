@@ -84,16 +84,17 @@ func main() {
 		}
 	}
 	d.Reaper = &dispatcher.Reaper{
-		Store:      queries,
-		Interval:   cfg.ReapInterval,
-		StaleAfter: cfg.ReapStaleAfter,
-		Logger:     d.Logger,
+		Store:            queries,
+		Interval:         cfg.ReapInterval,
+		StaleAfter:       cfg.ReapStaleAfter,
+		StaleQueuedAfter: cfg.StaleQueuedAfter,
+		Logger:           d.Logger,
 	}
 
 	runCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	log.Printf("dispatcher running (workers=%d image=%s runtime=%q webhooks=%v reaper=%s/%s)",
-		cfg.ExecWorkers, cfg.RunnerImage, cfg.RunnerRuntime, d.Webhooks != nil, cfg.ReapInterval, cfg.ReapStaleAfter)
+	log.Printf("dispatcher running (workers=%d image=%s runtime=%q webhooks=%v reaper=%s/%s stale-queued=%s)",
+		cfg.ExecWorkers, cfg.RunnerImage, cfg.RunnerRuntime, d.Webhooks != nil, cfg.ReapInterval, cfg.ReapStaleAfter, cfg.StaleQueuedAfter)
 
 	if err := d.Run(runCtx); err != nil {
 		log.Fatalf("dispatcher: %v", err)

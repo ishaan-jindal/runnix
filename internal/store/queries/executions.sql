@@ -40,6 +40,21 @@ UPDATE executions
 SET status = 'failed', stderr = sqlc.arg(stderr), updated_at = now()
 WHERE status = 'running' AND updated_at < now() - make_interval(secs => sqlc.arg(stale_secs)::int);
 
+-- name: ListStaleQueuedExecutions :many
+-- Ids of executions stuck "queued" because their submit message never reached
+-- a worker (e.g. JetStream gave up at MaxDeliver). Backs the stale-queued
+-- reaper sweep; created_at is the moment the row entered "queued".
+SELECT id FROM executions
+WHERE status = 'queued' AND created_at < now() - make_interval(secs => sqlc.arg(stale_secs)::int);
+
+-- name: MarkStaleQueuedFailed :execrows
+-- Fails a stale queued execution found by ListStaleQueuedExecutions. The
+-- status guard re-checks at UPDATE time, so a row claimed (queued->running)
+-- between the SELECT and this UPDATE is left alone.
+UPDATE executions
+SET status = 'failed', stderr = sqlc.arg(stderr), updated_at = now()
+WHERE id = sqlc.arg(id) AND status = 'queued';
+
 -- name: CountExecutionsSince :one
 -- Submits in the trailing window; backs the per-tenant hourly submit quota.
 SELECT count(*)::bigint FROM executions WHERE tenant_id = $1 AND created_at >= $2;

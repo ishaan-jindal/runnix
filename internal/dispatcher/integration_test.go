@@ -475,3 +475,77 @@ func TestReaperFailsStaleRunning(t *testing.T) {
 		t.Fatalf("status = %q stderr = %q, want failed with reap note", row.Status, row.Stderr)
 	}
 }
+
+func TestReaperFailsStaleQueued(t *testing.T) {
+	pool := intTestPool(t)
+	nc := intTestNATS(t)
+	ctx := context.Background()
+	queries := storedb.New(pool)
+
+	// No dispatcher is running: the submit messages sit unconsumed, as after
+	// a MaxDeliver drop, so the rows stay queued.
+	staleID, _ := enqueue(t, pool, nc, "python", "print(1)", "", 5, "")
+	freshID, _ := enqueue(t, pool, nc, "python", "print(2)", "", 5, "")
+	runningID, _ := enqueue(t, pool, nc, "python", "print(3)", "", 5, "")
+
+	// Age one queued row past the threshold; claim another (running).
+	if _, err := pool.Exec(ctx, "UPDATE executions SET created_at = created_at - interval '11 minutes' WHERE id = $1", store.UUIDToPg(staleID)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, "UPDATE executions SET status = 'running' WHERE id = $1", store.UUIDToPg(runningID)); err != nil {
+		t.Fatal(err)
+	}
+
+	r := &Reaper{Store: queries, Interval: time.Minute, StaleAfter: 5 * time.Minute, StaleQueuedAfter: 10 * time.Minute, Logger: log.New(os.Stderr, "int-reaper ", 0)}
+	r.reapOnce(ctx)
+
+	for id, want := range map[uuid.UUID]string{staleID: "failed", freshID: "queued", runningID: "running"} {
+		var status, stderr string
+		if err := pool.QueryRow(ctx, "SELECT status, stderr FROM executions WHERE id = $1", store.UUIDToPg(id)).Scan(&status, &stderr); err != nil {
+			t.Fatal(err)
+		}
+		if status != want {
+			t.Fatalf("execution %s status = %q, want %q", id, status, want)
+		}
+		if want == "failed" && stderr != staleQueuedStderr {
+			t.Fatalf("stderr = %q, want %q", stderr, staleQueuedStderr)
+		}
+	}
+
+	// A claim landing between SELECT and UPDATE wins: the status guard in
+	// the UPDATE leaves the freshly running row alone.
+	raceID, _ := enqueue(t, pool, nc, "python", "print(4)", "", 5, "")
+	if _, err := pool.Exec(ctx, "UPDATE executions SET created_at = created_at - interval '11 minutes' WHERE id = $1", store.UUIDToPg(raceID)); err != nil {
+		t.Fatal(err)
+	}
+	ids, err := queries.ListStaleQueuedExecutions(ctx, 600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, id := range ids {
+		if id == store.UUIDToPg(raceID) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("ListStaleQueuedExecutions did not return stale row %s", raceID)
+	}
+	if _, err := pool.Exec(ctx, "UPDATE executions SET status = 'running' WHERE id = $1", store.UUIDToPg(raceID)); err != nil {
+		t.Fatal(err)
+	}
+	n, err := queries.MarkStaleQueuedFailed(ctx, storedb.MarkStaleQueuedFailedParams{ID: store.UUIDToPg(raceID), Stderr: staleQueuedStderr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("MarkStaleQueuedFailed rows = %d, want 0 for a claimed row", n)
+	}
+	var status string
+	if err := pool.QueryRow(ctx, "SELECT status FROM executions WHERE id = $1", store.UUIDToPg(raceID)).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "running" {
+		t.Fatalf("raced row status = %q, want running", status)
+	}
+}
