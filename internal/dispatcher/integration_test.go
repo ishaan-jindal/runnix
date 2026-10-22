@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -231,10 +232,6 @@ func enqueue(t *testing.T, pool *pgxpool.Pool, nc *rnats.Client, lang, source, s
 		ExecutionID: store.PgToString(row.ID),
 		TenantID:    tenant.String(),
 		Language:    lang,
-		Source:      source,
-		Stdin:       stdin,
-		TimeoutS:    timeout,
-		WebhookURL:  webhookURL,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +283,10 @@ func runDispatcher(t *testing.T, d *Dispatcher) context.CancelFunc {
 	t.Cleanup(func() {
 		cancel()
 		select {
-		case <-done:
+		case derr := <-done:
+			if derr != nil && !errors.Is(derr, context.Canceled) {
+				t.Logf("dispatcher returned: %v", derr)
+			}
 		case <-time.After(5 * time.Second):
 			t.Log("dispatcher did not stop cleanly")
 		}

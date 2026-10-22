@@ -201,14 +201,12 @@ func (h *ExecutionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	id := store.PgToString(row.ID)
 
+	// The queue payload carries references only; the dispatcher claims the
+	// row from Postgres, so source/stdin/timeout/webhook are not republished.
 	if err := h.Publisher.PublishSubmit(r.Context(), rnats.SubmitMessage{
 		ExecutionID: id,
 		TenantID:    tenant,
 		Language:    req.Language,
-		Source:      req.Source,
-		Stdin:       req.Stdin,
-		TimeoutS:    req.TimeoutS,
-		WebhookURL:  req.WebhookURL,
 	}); err != nil {
 		// The row exists but nothing will ever run it: fail it loudly
 		// instead of leaving a ghost-queued execution.

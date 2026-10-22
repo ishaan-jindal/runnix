@@ -20,13 +20,16 @@ UPDATE executions
 SET status = 'failed', stderr = $2, updated_at = now()
 WHERE id = $1 AND status = 'queued';
 
--- name: MarkExecutionRunning :execrows
--- Claims a queued execution for the dispatcher. Only the claim that
--- transitions queued->running runs the code; duplicate JetStream deliveries
--- (at-least-once) see 0 rows and are acked and skipped.
+-- name: MarkExecutionRunning :one
+-- Claims a queued execution for the dispatcher and returns the row it will
+-- run. Only the claim that transitions queued->running runs the code;
+-- duplicate JetStream deliveries (at-least-once) get pgx.ErrNoRows and are
+-- acked and skipped. The queue carries references only, so the row is the
+-- source of truth for source/stdin/timeout/webhook.
 UPDATE executions
 SET status = 'running', updated_at = now()
-WHERE id = $1 AND status = 'queued';
+WHERE id = $1 AND status = 'queued'
+RETURNING id, tenant_id, language, source, stdin, timeout_s, webhook_url;
 
 -- name: FinishExecution :exec
 -- Writes a result for a running execution. status is one of

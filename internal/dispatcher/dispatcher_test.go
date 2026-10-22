@@ -8,39 +8,67 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ishaan-jindal/runnix/internal/store"
 	"github.com/ishaan-jindal/runnix/internal/store/storedb"
 	"github.com/ishaan-jindal/runnix/internal/webhooks"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	rnats "github.com/ishaan-jindal/runnix/internal/nats"
 )
 
-const testExecID = "22222222-2222-2222-2222-222222222222"
+const (
+	testExecID   = "22222222-2222-2222-2222-222222222222"
+	testTenantID = "11111111-1111-1111-1111-111111111111"
+)
 
-type fakeStore struct {
-	claimed   int64
-	claimErr  error
-	finished  []storedb.FinishExecutionParams
-	finishErr error
+func mustPgUUID(t *testing.T, s string) pgtype.UUID {
+	t.Helper()
+	id, err := store.ParsePg(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
-func (f *fakeStore) MarkExecutionRunning(context.Context, pgtype.UUID) (int64, error) {
-	return f.claimed, f.claimErr
+// claimedRow is what MarkExecutionRunning returns: the DB row the dispatcher
+// runs, independent of what the submit message carried.
+func claimedRow(t *testing.T) ClaimedExecution {
+	t.Helper()
+	return ClaimedExecution{
+		ID:       mustPgUUID(t, testExecID),
+		TenantID: mustPgUUID(t, testTenantID),
+		Language: "python",
+		Source:   "print(1)",
+		TimeoutS: 2,
+	}
+}
+
+type fakeStore struct {
+	claim    ClaimedExecution
+	claimErr error
+	finished []storedb.FinishExecutionParams
+}
+
+func (f *fakeStore) MarkExecutionRunning(context.Context, pgtype.UUID) (ClaimedExecution, error) {
+	return f.claim, f.claimErr
 }
 
 func (f *fakeStore) FinishExecution(_ context.Context, arg storedb.FinishExecutionParams) error {
 	f.finished = append(f.finished, arg)
-	return f.finishErr
+	return nil
 }
 
 type fakeRunner struct {
 	res  RunResult
 	err  error
 	runs int
+	last ClaimedExecution
 }
 
-func (f *fakeRunner) Run(_ context.Context, _ rnats.SubmitMessage) (RunResult, error) {
+func (f *fakeRunner) Run(_ context.Context, exec ClaimedExecution) (RunResult, error) {
 	f.runs++
+	f.last = exec
 	return f.res, f.err
 }
 
@@ -83,24 +111,27 @@ func (w *testWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// submitMsg carries references only; source/stdin/timeout/webhook live in the
+// row claimed from Postgres.
 func submitMsg() rnats.SubmitMessage {
 	return rnats.SubmitMessage{
 		ExecutionID: testExecID,
-		TenantID:    "11111111-1111-1111-1111-111111111111",
+		TenantID:    testTenantID,
 		Language:    "python",
-		Source:      "print(1)",
-		TimeoutS:    2,
 	}
 }
 
 func TestHandleSuccess(t *testing.T) {
-	st := &fakeStore{claimed: 1}
+	st := &fakeStore{claim: claimedRow(t)}
 	run := &fakeRunner{res: RunResult{ExitCode: 0, Stdout: "1\n"}}
 	pub := &fakePub{}
 	d := newDispatcher(t, st, run, pub)
 
 	if err := d.handle(context.Background(), mustJSON(t, submitMsg())); err != nil {
 		t.Fatalf("handle = %v", err)
+	}
+	if run.last.Source != "print(1)" || run.last.TimeoutS != 2 {
+		t.Fatalf("runner got %+v, want the claimed row", run.last)
 	}
 	if len(st.finished) != 1 {
 		t.Fatalf("finished = %d, want 1", len(st.finished))
@@ -115,7 +146,7 @@ func TestHandleSuccess(t *testing.T) {
 }
 
 func TestHandleDuplicateClaimSkipped(t *testing.T) {
-	st := &fakeStore{claimed: 0}
+	st := &fakeStore{claimErr: pgx.ErrNoRows}
 	run := &fakeRunner{}
 	d := newDispatcher(t, st, run, &fakePub{})
 
@@ -131,15 +162,15 @@ func TestHandleDuplicateClaimSkipped(t *testing.T) {
 }
 
 func TestHandlePoisonMessages(t *testing.T) {
-	st := &fakeStore{claimed: 1}
+	st := &fakeStore{claim: claimedRow(t)}
 	d := newDispatcher(t, st, &fakeRunner{}, &fakePub{})
 	ctx := context.Background()
 
 	for name, raw := range map[string]string{
 		"bad json":     "{not json",
-		"empty id":     `{"execution_id":"","language":"python","source":"x"}`,
-		"bad language": `{"execution_id":"` + testExecID + `","language":"ruby","source":"x"}`,
-		"bad uuid":     `{"execution_id":"nope","language":"python","source":"x"}`,
+		"empty id":     `{"execution_id":"","language":"python"}`,
+		"bad language": `{"execution_id":"` + testExecID + `","language":"ruby"}`,
+		"bad uuid":     `{"execution_id":"nope","language":"python"}`,
 		"no language":  `{"execution_id":"` + testExecID + `"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -154,7 +185,7 @@ func TestHandlePoisonMessages(t *testing.T) {
 }
 
 func TestHandleTimeout(t *testing.T) {
-	st := &fakeStore{claimed: 1}
+	st := &fakeStore{claim: claimedRow(t)}
 	run := &fakeRunner{res: RunResult{ExitCode: 137, TimedOut: true, Stdout: "partial"}}
 	pub := &fakePub{}
 	d := newDispatcher(t, st, run, pub)
@@ -172,7 +203,7 @@ func TestHandleTimeout(t *testing.T) {
 }
 
 func TestHandleOOM(t *testing.T) {
-	st := &fakeStore{claimed: 1}
+	st := &fakeStore{claim: claimedRow(t)}
 	run := &fakeRunner{res: RunResult{ExitCode: 137, OOMKilled: true, Stderr: ""}}
 	d := newDispatcher(t, st, run, &fakePub{})
 
@@ -186,7 +217,7 @@ func TestHandleOOM(t *testing.T) {
 }
 
 func TestHandleNonZeroExit(t *testing.T) {
-	st := &fakeStore{claimed: 1}
+	st := &fakeStore{claim: claimedRow(t)}
 	run := &fakeRunner{res: RunResult{ExitCode: 1, Stderr: "boom"}}
 	d := newDispatcher(t, st, run, &fakePub{})
 
@@ -199,37 +230,22 @@ func TestHandleNonZeroExit(t *testing.T) {
 	}
 }
 
-func TestHandleRunnerErrorNaks(t *testing.T) {
-	st := &fakeStore{claimed: 1}
-	run := &fakeRunner{err: context.DeadlineExceeded}
-	d := newDispatcher(t, st, run, &fakePub{})
-
-	if err := d.handle(context.Background(), mustJSON(t, submitMsg())); err == nil {
-		t.Fatal("handle = nil, want error to trigger nak")
-	}
-	// Execution must not be left stuck "running".
-	if len(st.finished) != 1 || st.finished[0].Status != "failed" {
-		t.Fatalf("finished = %+v, want one failed", st.finished)
-	}
-}
-
 func TestHandleDeliversWebhook(t *testing.T) {
-	st := &fakeStore{claimed: 1}
+	st := &fakeStore{claim: claimedRow(t)}
+	st.claim.WebhookUrl = pgtype.Text{String: "https://hooks.example.com/done", Valid: true}
 	run := &fakeRunner{res: RunResult{ExitCode: 0, Stdout: "1\n"}}
 	hooks := &fakeWebhooks{}
 	d := newDispatcher(t, st, run, &fakePub{})
 	d.Webhooks = hooks
 
-	msg := submitMsg()
-	msg.WebhookURL = "https://hooks.example.com/done"
-	if err := d.handle(context.Background(), mustJSON(t, msg)); err != nil {
+	if err := d.handle(context.Background(), mustJSON(t, submitMsg())); err != nil {
 		t.Fatalf("handle = %v", err)
 	}
 	if len(hooks.events) != 1 || len(hooks.urls) != 1 {
 		t.Fatalf("webhook deliveries = %d, want 1", len(hooks.events))
 	}
-	if hooks.urls[0] != msg.WebhookURL {
-		t.Fatalf("url = %q, want %q", hooks.urls[0], msg.WebhookURL)
+	if hooks.urls[0] != st.claim.WebhookUrl.String {
+		t.Fatalf("url = %q, want %q", hooks.urls[0], st.claim.WebhookUrl.String)
 	}
 	evt := hooks.events[0]
 	if evt.Event != webhooks.EventExecutionCompleted || evt.Status != "succeeded" ||
@@ -238,17 +254,20 @@ func TestHandleDeliversWebhook(t *testing.T) {
 	}
 }
 
-func TestHandleWebhookOnRunnerError(t *testing.T) {
-	st := &fakeStore{claimed: 1}
-	run := &fakeRunner{err: context.DeadlineExceeded}
+func TestHandleRunnerErrorRecordsFailure(t *testing.T) {
+	st := &fakeStore{claim: claimedRow(t)}
+	st.claim.WebhookUrl = pgtype.Text{String: "https://hooks.example.com/done", Valid: true}
+	run := &fakeRunner{err: errors.New("sandbox exploded")}
 	hooks := &fakeWebhooks{}
 	d := newDispatcher(t, st, run, &fakePub{})
 	d.Webhooks = hooks
 
-	msg := submitMsg()
-	msg.WebhookURL = "https://hooks.example.com/done"
-	if err := d.handle(context.Background(), mustJSON(t, msg)); err == nil {
+	if err := d.handle(context.Background(), mustJSON(t, submitMsg())); err == nil {
 		t.Fatal("handle = nil, want error to trigger nak")
+	}
+	if len(st.finished) != 1 || st.finished[0].Status != "failed" ||
+		!strings.Contains(st.finished[0].Stderr, "runner error") {
+		t.Fatalf("finished = %+v, want one failed row", st.finished)
 	}
 	if len(hooks.events) != 1 || hooks.events[0].Status != "failed" || hooks.events[0].ExitCode != nil {
 		t.Fatalf("events = %+v, want one failed with null exit_code", hooks.events)
@@ -256,7 +275,7 @@ func TestHandleWebhookOnRunnerError(t *testing.T) {
 }
 
 func TestHandleSkipsWebhookWithoutURL(t *testing.T) {
-	st := &fakeStore{claimed: 1}
+	st := &fakeStore{claim: claimedRow(t)}
 	run := &fakeRunner{res: RunResult{ExitCode: 0, Stdout: "1\n"}}
 	hooks := &fakeWebhooks{}
 	d := newDispatcher(t, st, run, &fakePub{})
@@ -271,16 +290,15 @@ func TestHandleSkipsWebhookWithoutURL(t *testing.T) {
 }
 
 func TestHandleWebhookFailureTolerated(t *testing.T) {
-	st := &fakeStore{claimed: 1}
+	st := &fakeStore{claim: claimedRow(t)}
+	st.claim.WebhookUrl = pgtype.Text{String: "https://hooks.example.com/done", Valid: true}
 	run := &fakeRunner{res: RunResult{ExitCode: 0, Stdout: "1\n"}}
 	pub := &fakePub{}
 	hooks := &fakeWebhooks{err: errors.New("receiver down")}
 	d := newDispatcher(t, st, run, pub)
 	d.Webhooks = hooks
 
-	msg := submitMsg()
-	msg.WebhookURL = "https://hooks.example.com/done"
-	if err := d.handle(context.Background(), mustJSON(t, msg)); err != nil {
+	if err := d.handle(context.Background(), mustJSON(t, submitMsg())); err != nil {
 		t.Fatalf("handle = %v, want nil (delivery is best-effort)", err)
 	}
 	if len(st.finished) != 1 || st.finished[0].Status != "succeeded" {

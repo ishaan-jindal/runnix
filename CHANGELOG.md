@@ -29,6 +29,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   purposes, so a poison submit no longer permanently consumes a free
   tier's active cap with a misleading `429`.
 
+### Fixed
+
+- The submit queue carries references only (`execution_id`, `tenant_id`,
+  `language`). The dispatcher loads source, stdin, timeout, and
+  `webhook_url` from the row it claims, so webhooks now fire for the
+  persisted URL and the queue no longer duplicates up to 100 KiB of source
+  per message.
+
 ## [0.1.1] - 2026-09-12
 
 ### Added

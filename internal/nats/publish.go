@@ -16,14 +16,15 @@ import (
 
 // SubmitMessage is the payload published to exec.submit.<lang> when an
 // execution is created. Both gateway and dispatcher must agree on this shape.
+//
+// It carries references only: the dispatcher claims the row in Postgres and
+// runs what the DB holds, so source/stdin/timeout/webhook never travel on the
+// queue and cannot drift from the audited row. TenantID is denormalized on
+// purpose: the dispatcher needs it for container labels and webhook payloads.
 type SubmitMessage struct {
 	ExecutionID string `json:"execution_id"`
 	TenantID    string `json:"tenant_id"`
 	Language    string `json:"language"`
-	Source      string `json:"source"`
-	Stdin       string `json:"stdin"`
-	TimeoutS    int    `json:"timeout_s"`
-	WebhookURL  string `json:"webhook_url,omitempty"`
 }
 
 // ResultMessage is the summary published to exec.result.<execution_id> when a

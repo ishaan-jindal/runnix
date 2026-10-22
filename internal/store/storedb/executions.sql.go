@@ -233,21 +233,41 @@ func (q *Queries) ListStaleQueuedExecutions(ctx context.Context, staleSecs int32
 	return items, nil
 }
 
-const markExecutionRunning = `-- name: MarkExecutionRunning :execrows
+const markExecutionRunning = `-- name: MarkExecutionRunning :one
 UPDATE executions
 SET status = 'running', updated_at = now()
 WHERE id = $1 AND status = 'queued'
+RETURNING id, tenant_id, language, source, stdin, timeout_s, webhook_url
 `
 
-// Claims a queued execution for the dispatcher. Only the claim that
-// transitions queued->running runs the code; duplicate JetStream deliveries
-// (at-least-once) see 0 rows and are acked and skipped.
-func (q *Queries) MarkExecutionRunning(ctx context.Context, id pgtype.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, markExecutionRunning, id)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+type MarkExecutionRunningRow struct {
+	ID         pgtype.UUID `json:"id"`
+	TenantID   pgtype.UUID `json:"tenant_id"`
+	Language   string      `json:"language"`
+	Source     string      `json:"source"`
+	Stdin      string      `json:"stdin"`
+	TimeoutS   int32       `json:"timeout_s"`
+	WebhookUrl pgtype.Text `json:"webhook_url"`
+}
+
+// Claims a queued execution for the dispatcher and returns the row it will
+// run. Only the claim that transitions queued->running runs the code;
+// duplicate JetStream deliveries (at-least-once) get pgx.ErrNoRows and are
+// acked and skipped. The queue carries references only, so the row is the
+// source of truth for source/stdin/timeout/webhook.
+func (q *Queries) MarkExecutionRunning(ctx context.Context, id pgtype.UUID) (MarkExecutionRunningRow, error) {
+	row := q.db.QueryRow(ctx, markExecutionRunning, id)
+	var i MarkExecutionRunningRow
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Language,
+		&i.Source,
+		&i.Stdin,
+		&i.TimeoutS,
+		&i.WebhookUrl,
+	)
+	return i, err
 }
 
 const markStaleQueuedFailed = `-- name: MarkStaleQueuedFailed :execrows
