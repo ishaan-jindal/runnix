@@ -1,6 +1,9 @@
 name: docker
 
 on:
+  # Feature-branch pushes do not run this workflow. pull_request builds
+  # and does not push. main publishes :edge; v* publishes version tags
+  # and :latest. workflow_dispatch publishes a sha tag.
   push:
     branches:
       - main
@@ -13,12 +16,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: docker-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     permissions:
       contents: read
@@ -45,6 +49,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       # No QEMU: Go services cross-compile from $BUILDPLATFORM (see
       # Dockerfile.*) and the runner image is amd64-only.

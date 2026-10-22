@@ -30,9 +30,11 @@ just migrate-up     # apply migrations to a standalone DB (compose auto-migrates
 just deploy-check   # render-check hosted compose files without starting anything
 ```
 
-CI (`ci.yml`) runs vet + race tests + lint + build on every push/PR.
-`docker.yml` builds GHCR images (PRs build-only, no push).
-`release.yml` is tag-gated (`v*`) with a vet/test/build gate first.
+CI (`ci.yml`) runs vet + race tests + lint + build on pull requests and
+pushes to `main` (feature-branch pushes are not a second run).
+`docker.yml` builds GHCR images for those same events (PRs build-only, no
+push) and on `v*` tags. `release.yml` is tag-gated (`v*`) with a
+vet/test/build gate first.
 
 ## Conventions (enforced in review)
 
