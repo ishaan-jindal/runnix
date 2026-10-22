@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Execution attribution: every new `executions` row records the submitting
+  user (`submitted_by_user_id`) and, when the request was authenticated with
+  an API key, the key id (`submitted_by_api_key_id`). Both columns are
+  nullable with `ON DELETE SET NULL`: pre-existing and dev-mode runs have no
+  actor, and deleting a user or key keeps the execution history intact.
 - Per-tenant submit quotas: `POST /executions` enforces a trailing-hour
   submit cap plus a concurrent (queued + running) execution cap per tier
   (free 60/hr + 2 active, starter 600/hr + 5, professional 6000/hr + 20,

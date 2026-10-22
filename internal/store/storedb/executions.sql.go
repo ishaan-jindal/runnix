@@ -41,18 +41,21 @@ func (q *Queries) CountExecutionsSince(ctx context.Context, arg CountExecutionsS
 }
 
 const createExecution = `-- name: CreateExecution :one
-INSERT INTO executions (tenant_id, language, source, stdin, timeout_s, webhook_url)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO executions (tenant_id, language, source, stdin, timeout_s, webhook_url,
+                        submitted_by_user_id, submitted_by_api_key_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id, tenant_id, language, status, created_at
 `
 
 type CreateExecutionParams struct {
-	TenantID   pgtype.UUID `json:"tenant_id"`
-	Language   string      `json:"language"`
-	Source     string      `json:"source"`
-	Stdin      string      `json:"stdin"`
-	TimeoutS   int32       `json:"timeout_s"`
-	WebhookUrl pgtype.Text `json:"webhook_url"`
+	TenantID            pgtype.UUID `json:"tenant_id"`
+	Language            string      `json:"language"`
+	Source              string      `json:"source"`
+	Stdin               string      `json:"stdin"`
+	TimeoutS            int32       `json:"timeout_s"`
+	WebhookUrl          pgtype.Text `json:"webhook_url"`
+	SubmittedByUserID   pgtype.UUID `json:"submitted_by_user_id"`
+	SubmittedByApiKeyID pgtype.Text `json:"submitted_by_api_key_id"`
 }
 
 type CreateExecutionRow struct {
@@ -63,6 +66,8 @@ type CreateExecutionRow struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+// submitted_by_* are NULL when the submit had no authenticated actor
+// (development without JWT_SECRET, or pre-attribution callers).
 func (q *Queries) CreateExecution(ctx context.Context, arg CreateExecutionParams) (CreateExecutionRow, error) {
 	row := q.db.QueryRow(ctx, createExecution,
 		arg.TenantID,
@@ -71,6 +76,8 @@ func (q *Queries) CreateExecution(ctx context.Context, arg CreateExecutionParams
 		arg.Stdin,
 		arg.TimeoutS,
 		arg.WebhookUrl,
+		arg.SubmittedByUserID,
+		arg.SubmittedByApiKeyID,
 	)
 	var i CreateExecutionRow
 	err := row.Scan(

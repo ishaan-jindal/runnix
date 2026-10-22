@@ -146,13 +146,30 @@ func (h *ExecutionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if req.WebhookURL != "" {
 		webhook = pgtype.Text{String: req.WebhookURL, Valid: true}
 	}
+	// Actor attribution: the middleware resolved identity, so both values are
+	// trustworthy here. Empty identity means auth is mounted off (development)
+	// and the columns stay NULL.
+	actorUser := pgtype.UUID{}
+	if userID := middleware.UserIDFrom(r.Context()); userID != "" {
+		actorUser, err = store.ParsePg(userID)
+		if err != nil {
+			writeErr(w, http.StatusUnauthorized, "invalid user identity")
+			return
+		}
+	}
+	actorKey := pgtype.Text{}
+	if keyID := middleware.APIKeyIDFrom(r.Context()); keyID != "" {
+		actorKey = pgtype.Text{String: keyID, Valid: true}
+	}
 	params := storedb.CreateExecutionParams{
-		TenantID:   tenantUUID,
-		Language:   req.Language,
-		Source:     req.Source,
-		Stdin:      req.Stdin,
-		TimeoutS:   int32(req.TimeoutS),
-		WebhookUrl: webhook,
+		TenantID:            tenantUUID,
+		Language:            req.Language,
+		Source:              req.Source,
+		Stdin:               req.Stdin,
+		TimeoutS:            int32(req.TimeoutS),
+		WebhookUrl:          webhook,
+		SubmittedByUserID:   actorUser,
+		SubmittedByApiKeyID: actorKey,
 	}
 	var row storedb.CreateExecutionRow
 	if h.Quota != nil {

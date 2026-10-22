@@ -1,6 +1,9 @@
 -- name: CreateExecution :one
-INSERT INTO executions (tenant_id, language, source, stdin, timeout_s, webhook_url)
-VALUES ($1, $2, $3, $4, $5, $6)
+-- submitted_by_* are NULL when the submit had no authenticated actor
+-- (development without JWT_SECRET, or pre-attribution callers).
+INSERT INTO executions (tenant_id, language, source, stdin, timeout_s, webhook_url,
+                        submitted_by_user_id, submitted_by_api_key_id)
+VALUES ($1, $2, $3, $4, $5, $6, sqlc.arg(submitted_by_user_id), sqlc.arg(submitted_by_api_key_id))
 RETURNING id, tenant_id, language, status, created_at;
 
 -- name: GetExecution :one
