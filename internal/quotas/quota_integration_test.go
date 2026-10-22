@@ -157,8 +157,8 @@ func finishExecution(t *testing.T, pool *pgxpool.Pool, tenant string) {
 	if err != nil {
 		t.Fatalf("insert: %v", err)
 	}
-	if n, err := q.MarkExecutionRunning(ctx, row.ID); err != nil || n != 1 {
-		t.Fatalf("claim = %d, %v; want 1, nil", n, err)
+	if _, err := q.MarkExecutionRunning(ctx, row.ID); err != nil {
+		t.Fatalf("claim: %v", err)
 	}
 	if err := q.FinishExecution(ctx, storedb.FinishExecutionParams{
 		ID:       row.ID,

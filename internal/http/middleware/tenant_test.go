@@ -158,10 +158,11 @@ func TestRequireAuthWithAPIKeys(t *testing.T) {
 		return "", false
 	}
 
-	var gotUser, gotTenant string
+	var gotUser, gotTenant, gotKey string
 	ok := func(w http.ResponseWriter, r *http.Request) {
 		gotUser = UserIDFrom(r.Context())
 		gotTenant = TenantIDFrom(r.Context())
+		gotKey = APIKeyIDFrom(r.Context())
 		w.WriteHeader(http.StatusOK)
 	}
 	validJWT := tokenFor(t, secret, []auth.TenantClaim{{ID: "t1", Role: "owner"}})
@@ -175,25 +176,26 @@ func TestRequireAuthWithAPIKeys(t *testing.T) {
 		want       int
 		wantUser   string
 		wantTenant string
+		wantKey    string
 	}{
-		{"jwt delegates member", "Bearer " + validJWT, "t1", nil, keys, http.StatusOK, "u1", "t1"},
-		{"jwt delegates bad token", "Bearer nope", "t1", nil, keys, http.StatusUnauthorized, "", ""},
-		{"jwt delegates missing token", "", "t1", nil, keys, http.StatusUnauthorized, "", ""},
-		{"valid key sets ctx", "Bearer " + fullKey, "t-key", member, keys, http.StatusOK, "u-key", "t-key"},
-		{"bad secret", "Bearer sk_live_" + keyID + ".wrongsecret", "t-key", member, keys, http.StatusUnauthorized, "", ""},
-		{"unknown key", "Bearer " + otherFull, "t-key", member, keys, http.StatusUnauthorized, "", ""},
-		{"revoked key", "Bearer " + fullKey, "t-key", member, revoked, http.StatusUnauthorized, "", ""},
-		{"malformed key no secret", "Bearer sk_live_abc", "t-key", member, keys, http.StatusUnauthorized, "", ""},
-		{"malformed key empty", "Bearer sk_live_", "t-key", member, keys, http.StatusUnauthorized, "", ""},
-		{"key wrong tenant", "Bearer " + fullKey, "t-other", member, keys, http.StatusForbidden, "", ""},
-		{"membership gone", "Bearer " + fullKey, "t-key", gone, keys, http.StatusForbidden, "", ""},
-		{"nil membership denies", "Bearer " + fullKey, "t-key", nil, keys, http.StatusForbidden, "", ""},
-		{"missing tenant", "Bearer " + fullKey, "", member, keys, http.StatusBadRequest, "", ""},
+		{"jwt delegates member", "Bearer " + validJWT, "t1", nil, keys, http.StatusOK, "u1", "t1", ""},
+		{"jwt delegates bad token", "Bearer nope", "t1", nil, keys, http.StatusUnauthorized, "", "", ""},
+		{"jwt delegates missing token", "", "t1", nil, keys, http.StatusUnauthorized, "", "", ""},
+		{"valid key sets ctx", "Bearer " + fullKey, "t-key", member, keys, http.StatusOK, "u-key", "t-key", keyID},
+		{"bad secret", "Bearer sk_live_" + keyID + ".wrongsecret", "t-key", member, keys, http.StatusUnauthorized, "", "", ""},
+		{"unknown key", "Bearer " + otherFull, "t-key", member, keys, http.StatusUnauthorized, "", "", ""},
+		{"revoked key", "Bearer " + fullKey, "t-key", member, revoked, http.StatusUnauthorized, "", "", ""},
+		{"malformed key no secret", "Bearer sk_live_abc", "t-key", member, keys, http.StatusUnauthorized, "", "", ""},
+		{"malformed key empty", "Bearer sk_live_", "t-key", member, keys, http.StatusUnauthorized, "", "", ""},
+		{"key wrong tenant", "Bearer " + fullKey, "t-other", member, keys, http.StatusForbidden, "", "", ""},
+		{"membership gone", "Bearer " + fullKey, "t-key", gone, keys, http.StatusForbidden, "", "", ""},
+		{"nil membership denies", "Bearer " + fullKey, "t-key", nil, keys, http.StatusForbidden, "", "", ""},
+		{"missing tenant", "Bearer " + fullKey, "", member, keys, http.StatusBadRequest, "", "", ""},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotUser, gotTenant = "", ""
+			gotUser, gotTenant, gotKey = "", "", ""
 			h := RequireAuthWithAPIKeys(secret, tc.check, tc.keyCheck)(http.HandlerFunc(ok))
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			if tc.token != "" {
@@ -207,9 +209,9 @@ func TestRequireAuthWithAPIKeys(t *testing.T) {
 			if rec.Code != tc.want {
 				t.Fatalf("= %d, want %d", rec.Code, tc.want)
 			}
-			if gotUser != tc.wantUser || gotTenant != tc.wantTenant {
-				t.Fatalf("ctx = (%q, %q), want (%q, %q)",
-					gotUser, gotTenant, tc.wantUser, tc.wantTenant)
+			if gotUser != tc.wantUser || gotTenant != tc.wantTenant || gotKey != tc.wantKey {
+				t.Fatalf("ctx = (%q, %q, %q), want (%q, %q, %q)",
+					gotUser, gotTenant, gotKey, tc.wantUser, tc.wantTenant, tc.wantKey)
 			}
 			if rec.Code != http.StatusOK {
 				var body map[string]string

@@ -13,6 +13,7 @@ import (
 	"github.com/ishaan-jindal/runnix/internal/store"
 	"github.com/ishaan-jindal/runnix/internal/store/storedb"
 	"github.com/ishaan-jindal/runnix/internal/webhooks"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -27,13 +28,24 @@ const (
 	ackWait            = 90 * time.Second
 	nakDelay           = 5 * time.Second
 	poisonStderrPrefix = "submit message discarded"
+
+	// Result writes retry in place: losing a completed run is worse than a
+	// few extra milliseconds of guard on the single UPDATE that persists it.
+	finishAttempts = 3
+	finishBackoff  = 100 * time.Millisecond
 )
+
+// ClaimedExecution is the row the dispatcher claimed. The queue message only
+// names it; Postgres is the source of truth for what runs. It aliases the
+// sqlc-generated row so *storedb.Queries satisfies Store without an adapter.
+type ClaimedExecution = storedb.MarkExecutionRunningRow
 
 // Store is the Postgres surface the dispatcher needs. *storedb.Queries
 // satisfies it; unit tests supply fakes.
 type Store interface {
-	MarkExecutionRunning(ctx context.Context, id pgtype.UUID) (int64, error)
+	MarkExecutionRunning(ctx context.Context, id pgtype.UUID) (ClaimedExecution, error)
 	FinishExecution(ctx context.Context, arg storedb.FinishExecutionParams) error
+	RequeueExecution(ctx context.Context, id pgtype.UUID) (int64, error)
 }
 
 // ResultPublisher publishes result summaries. *rnats.Client satisfies it.
@@ -136,7 +148,9 @@ func (d *Dispatcher) worker(ctx context.Context, c jetstream.Consumer) {
 
 		if err := d.handle(ctx, msg.Data()); err != nil {
 			d.Logger.Printf("handle execution: %v", err)
-			_ = msg.NakWithDelay(nakDelay) // claim guard makes redelivery safe
+			// handle only returns errors for pre-start failures (row requeued)
+			// and result-write exhaustion; neither path can double-execute.
+			_ = msg.NakWithDelay(nakDelay)
 		} else {
 			_ = msg.Ack()
 		}
@@ -163,27 +177,41 @@ func (d *Dispatcher) handle(ctx context.Context, raw []byte) error {
 		return nil
 	}
 
-	// Claim. A duplicate redelivery sees 0 rows and is acked.
-	n, err := d.Store.MarkExecutionRunning(ctx, id)
+	// Claim and load the row. A duplicate redelivery gets pgx.ErrNoRows and
+	// is acked; the returned row is the source of truth for what runs.
+	exec, err := d.Store.MarkExecutionRunning(ctx, id)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil // already claimed/finished
+		}
 		return err
-	}
-	if n == 0 {
-		return nil // already claimed/finished
 	}
 
 	started := time.Now()
-	res, err := d.Runner.Run(ctx, msg)
+	res, err := d.Runner.Run(ctx, exec)
 	if err != nil {
-		// Runner failed before producing an outcome: record it failed so it
-		// is not stuck "running", then let redelivery see the claim guard.
-		_ = d.Store.FinishExecution(ctx, storedb.FinishExecutionParams{
-			ID:     id,
+		if errors.Is(err, errNotStarted) {
+			// Nothing ran, so a retry cannot double-execute. Return the row
+			// to the queue and NAK; the redelivery re-claims it. Each attempt
+			// burns one of MaxDeliver (5); a permanently broken daemon
+			// exhausts those and the stale-queued reaper fails the row once
+			// its created_at ages out.
+			if _, rerr := d.Store.RequeueExecution(ctx, exec.ID); rerr != nil {
+				d.Logger.Printf("requeue %s: %v", msg.ExecutionID, rerr)
+			}
+			return err
+		}
+		// The container started: the code may have run, so re-running it
+		// could execute it twice. Record the failure and ack.
+		if ferr := d.finish(ctx, storedb.FinishExecutionParams{
+			ID:     exec.ID,
 			Status: "failed",
 			Stderr: "runner error: " + err.Error(),
-		})
-		d.deliverWebhook(ctx, msg, "failed", nil, time.Since(started))
-		return err
+		}); ferr != nil {
+			d.Logger.Printf("record runner failure for %s: %v", msg.ExecutionID, ferr)
+		}
+		d.deliverWebhook(ctx, msg, exec, "failed", nil, time.Since(started))
+		return nil
 	}
 
 	status, exitCode, stderr := classify(res)
@@ -191,8 +219,8 @@ func (d *Dispatcher) handle(ctx context.Context, raw []byte) error {
 	if exitCode != nil {
 		exitPG = pgtype.Int4{Int32: int32(*exitCode), Valid: true}
 	}
-	if err := d.Store.FinishExecution(ctx, storedb.FinishExecutionParams{
-		ID:       id,
+	if err := d.finish(ctx, storedb.FinishExecutionParams{
+		ID:       exec.ID,
 		Status:   status,
 		Stdout:   res.Stdout,
 		Stderr:   stderr,
@@ -212,15 +240,43 @@ func (d *Dispatcher) handle(ctx context.Context, raw []byte) error {
 		d.Logger.Printf("publish result for %s: %v", msg.ExecutionID, err)
 	}
 
-	d.deliverWebhook(ctx, msg, status, exitCode, time.Since(started))
+	d.deliverWebhook(ctx, msg, exec, status, exitCode, time.Since(started))
 	return nil
 }
 
-// deliverWebhook POSTs the completion event to the submission's webhook_url
-// when one was set. Delivery is best-effort: a failure is logged and the
-// persisted result stands.
-func (d *Dispatcher) deliverWebhook(ctx context.Context, msg rnats.SubmitMessage, status string, exitCode *int, took time.Duration) {
-	if d.Webhooks == nil || msg.WebhookURL == "" {
+// finish persists a result, retrying transient failures with short bounded
+// backoff. This is the write that must land: a lost result is unrecoverable,
+// and a redelivery cannot recover it (the claim guard only claims queued
+// rows). The loop honours ctx's deadline instead of outliving it.
+func (d *Dispatcher) finish(ctx context.Context, arg storedb.FinishExecutionParams) error {
+	var err error
+	delay := finishBackoff
+	for attempt := 1; attempt <= finishAttempts; attempt++ {
+		if err = d.Store.FinishExecution(ctx, arg); err == nil {
+			return nil
+		}
+		if attempt == finishAttempts {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(delay):
+			delay *= 2
+		}
+	}
+	return err
+}
+
+// deliverWebhook POSTs the completion event to the webhook_url stored on the
+// execution row when one was set. Delivery is best-effort: a failure is
+// logged and the persisted result stands.
+func (d *Dispatcher) deliverWebhook(ctx context.Context, msg rnats.SubmitMessage, exec ClaimedExecution, status string, exitCode *int, took time.Duration) {
+	url := ""
+	if exec.WebhookUrl.Valid {
+		url = exec.WebhookUrl.String
+	}
+	if d.Webhooks == nil || url == "" {
 		return
 	}
 	evt := webhooks.ExecutionEvent{
@@ -232,7 +288,7 @@ func (d *Dispatcher) deliverWebhook(ctx context.Context, msg rnats.SubmitMessage
 		DurationMS:  took.Milliseconds(),
 		FinishedAt:  time.Now().UTC().Format(time.RFC3339Nano),
 	}
-	if err := d.Webhooks.Deliver(ctx, msg.WebhookURL, evt); err != nil {
+	if err := d.Webhooks.Deliver(ctx, url, evt); err != nil {
 		d.Logger.Printf("webhook for %s: %v", msg.ExecutionID, err)
 	}
 }

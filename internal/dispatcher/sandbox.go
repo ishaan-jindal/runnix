@@ -20,7 +20,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 
-	rnats "github.com/ishaan-jindal/runnix/internal/nats"
+	"github.com/ishaan-jindal/runnix/internal/store"
 )
 
 // Sandbox resource bounds.
@@ -45,11 +45,18 @@ type RunResult struct {
 	OOMKilled bool
 }
 
-// Runner executes one submission. Implementations must be safe for one
+// errNotStarted marks Run failures raised before the sandbox container was
+// started (create/attach/start). Nothing executed, so the dispatcher may
+// safely requeue the row and let the redelivery re-claim it.
+var errNotStarted = errors.New("sandbox not started")
+
+// Runner executes one claimed execution. Implementations must be safe for one
 // concurrent Run at a time per instance.
 type Runner interface {
-	// Run stages and executes msg, returning the outcome.
-	Run(ctx context.Context, msg rnats.SubmitMessage) (RunResult, error)
+	// Run stages and executes exec, returning the outcome. A failure before
+	// the container starts wraps errNotStarted; any other error means the
+	// code may have run.
+	Run(ctx context.Context, exec ClaimedExecution) (RunResult, error)
 }
 
 // dockerRunner runs submissions in per-execution containers. The container
@@ -105,7 +112,7 @@ func (r *dockerRunner) Sweep(ctx context.Context) error {
 // entrypoint extracts then runs. This avoids bind mounts entirely, so it works
 // both when the dispatcher runs on the host and when it drives Docker through
 // a mounted socket from inside its own container.
-func (r *dockerRunner) Run(ctx context.Context, msg rnats.SubmitMessage) (RunResult, error) {
+func (r *dockerRunner) Run(ctx context.Context, exec ClaimedExecution) (RunResult, error) {
 	pids := int64(sandboxPids)
 	cfg := &container.Config{
 		Image:           r.image,
@@ -117,8 +124,8 @@ func (r *dockerRunner) Run(ctx context.Context, msg rnats.SubmitMessage) (RunRes
 		StdinOnce:       true,
 		NetworkDisabled: true,
 		Labels: map[string]string{
-			execLabelKey:   msg.ExecutionID,
-			tenantLabelKey: msg.TenantID,
+			execLabelKey:   store.PgToString(exec.ID),
+			tenantLabelKey: store.PgToString(exec.TenantID),
 		},
 	}
 	host := &container.HostConfig{
@@ -138,7 +145,7 @@ func (r *dockerRunner) Run(ctx context.Context, msg rnats.SubmitMessage) (RunRes
 		},
 	}
 
-	name := "runnix-exec-" + msg.ExecutionID
+	name := "runnix-exec-" + store.PgToString(exec.ID)
 	created, err := r.cli.ContainerCreate(ctx, cfg, host, nil, nil, name)
 	if err != nil {
 		// A leftover container with this name (crash) blocks creation. The
@@ -147,7 +154,7 @@ func (r *dockerRunner) Run(ctx context.Context, msg rnats.SubmitMessage) (RunRes
 			created, err = r.cli.ContainerCreate(ctx, cfg, host, nil, nil, name)
 		}
 		if err != nil {
-			return RunResult{}, fmt.Errorf("create container: %w", err)
+			return RunResult{}, fmt.Errorf("%w: create container: %w", errNotStarted, err)
 		}
 	}
 	defer func() {
@@ -156,19 +163,21 @@ func (r *dockerRunner) Run(ctx context.Context, msg rnats.SubmitMessage) (RunRes
 
 	hij, err := r.cli.ContainerAttach(ctx, created.ID, container.AttachOptions{Stream: true, Stdin: true})
 	if err != nil {
-		return RunResult{}, fmt.Errorf("attach: %w", err)
+		return RunResult{}, fmt.Errorf("%w: attach: %w", errNotStarted, err)
 	}
 	defer hij.Close()
 
 	if err := r.cli.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
-		return RunResult{}, fmt.Errorf("start container: %w", err)
+		return RunResult{}, fmt.Errorf("%w: start container: %w", errNotStarted, err)
 	}
-	if _, err := hij.Conn.Write(workArchive(msg.Source, msg.Stdin)); err != nil {
+	if _, err := hij.Conn.Write(workArchive(exec.Source, exec.Stdin)); err != nil {
 		return RunResult{}, fmt.Errorf("send work archive: %w", err)
 	}
 	_ = hij.CloseWrite()
 
-	res, err := r.wait(ctx, created.ID, time.Duration(msg.TimeoutS)*time.Second)
+	// timeout_s is validated 1-60 by the gateway before insert and has no
+	// other writer, so the persisted value needs no second clamp here.
+	res, err := r.wait(ctx, created.ID, time.Duration(exec.TimeoutS)*time.Second)
 	if err != nil {
 		return res, err
 	}
@@ -238,7 +247,11 @@ func (r *dockerRunner) wait(ctx context.Context, id string, timeout time.Duratio
 		_ = r.cli.ContainerKill(context.Background(), id, "SIGKILL")
 		select {
 		case <-waitCh:
-		case <-errCh:
+		case werr := <-errCh:
+			// The kill raced the wait. Losing the error is harmless: the
+			// container is force-removed by the deferred cleanup, and the
+			// timeout has already decided the outcome.
+			_ = werr
 		case <-killCtx.Done():
 		}
 	}

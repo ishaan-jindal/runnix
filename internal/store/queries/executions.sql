@@ -1,6 +1,9 @@
 -- name: CreateExecution :one
-INSERT INTO executions (tenant_id, language, source, stdin, timeout_s, webhook_url)
-VALUES ($1, $2, $3, $4, $5, $6)
+-- submitted_by_* are NULL when the submit had no authenticated actor
+-- (development without JWT_SECRET, or pre-attribution callers).
+INSERT INTO executions (tenant_id, language, source, stdin, timeout_s, webhook_url,
+                        submitted_by_user_id, submitted_by_api_key_id)
+VALUES ($1, $2, $3, $4, $5, $6, sqlc.arg(submitted_by_user_id), sqlc.arg(submitted_by_api_key_id))
 RETURNING id, tenant_id, language, status, created_at;
 
 -- name: GetExecution :one
@@ -17,13 +20,25 @@ UPDATE executions
 SET status = 'failed', stderr = $2, updated_at = now()
 WHERE id = $1 AND status = 'queued';
 
--- name: MarkExecutionRunning :execrows
--- Claims a queued execution for the dispatcher. Only the claim that
--- transitions queued->running runs the code; duplicate JetStream deliveries
--- (at-least-once) see 0 rows and are acked and skipped.
+-- name: MarkExecutionRunning :one
+-- Claims a queued execution for the dispatcher and returns the row it will
+-- run. Only the claim that transitions queued->running runs the code;
+-- duplicate JetStream deliveries (at-least-once) get pgx.ErrNoRows and are
+-- acked and skipped. The queue carries references only, so the row is the
+-- source of truth for source/stdin/timeout/webhook.
 UPDATE executions
 SET status = 'running', updated_at = now()
-WHERE id = $1 AND status = 'queued';
+WHERE id = $1 AND status = 'queued'
+RETURNING id, tenant_id, language, source, stdin, timeout_s, webhook_url;
+
+-- name: RequeueExecution :execrows
+-- Returns a claimed execution to the queue after a pre-start runner failure
+-- (nothing executed). The status guard leaves a row alone if it is no longer
+-- running, so a concurrent reaper or a duplicate delivery cannot resurrect a
+-- finished execution.
+UPDATE executions
+SET status = 'queued', updated_at = now()
+WHERE id = $1 AND status = 'running';
 
 -- name: FinishExecution :exec
 -- Writes a result for a running execution. status is one of

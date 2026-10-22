@@ -107,10 +107,10 @@ Laptop path stays `just compose-up` (`deploy/compose.yaml`).
 | Variable | Default | Notes |
 |---|---|---|
 | `PORT` | `4000` | Gateway listen port |
-| `ENV` | `development` | `development` / `staging` / `production` |
+| `ENV` | — (unset) | Only `development` may omit `JWT_SECRET`; anything else (including unset) requires it |
 | `DATABASE_URL` | local postgres DSN | — |
 | `NATS_URL` | `nats://localhost:4222` | — |
-| `JWT_SECRET` | — (empty in dev) | Required outside `development` |
+| `JWT_SECRET` | — (empty in dev) | Required unless `ENV=development` |
 | `WEBHOOK_SIGNING_SECRET` | — (empty) | Enables `webhook_url`; same on gateway + dispatcher |
 | `WEBHOOK_ALLOW_PRIVATE` | `false` | Allow private hosts (dev/tests only) |
 | `EXEC_WORKERS` | `2` | Dispatcher worker pool size |
@@ -134,6 +134,8 @@ just dispatcher          # run the dispatcher locally (needs Docker + Postgres +
 ```
 
 Integration tests use real Postgres/NATS/containers; skipped without Docker.
+`just dev` / `just dispatcher` need `ENV=development` when `JWT_SECRET` is
+empty: unset `ENV` fails closed rather than serving unauthenticated.
 
 ## Security model
 

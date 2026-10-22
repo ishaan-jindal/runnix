@@ -9,12 +9,14 @@ package quotas
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/ishaan-jindal/runnix/internal/store"
 	"github.com/ishaan-jindal/runnix/internal/store/storedb"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -101,6 +103,28 @@ func decide(l Limits, hourly, active int64) Decision {
 // the canonical UUID string so alternate notations share one lock.
 const advisoryLockSQL = `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`
 
+// quotaLockTimeout bounds the advisory-lock wait. The locked transaction is a
+// few indexed counts plus one insert (milliseconds), so waiting 2s means the
+// tenant's earlier transaction is wedged. Failing open is correct then:
+// pg_advisory_xact_lock blocks forever by default, and every blocked submit
+// pins a shared pgxpool connection, so one tenant's stall would exhaust the
+// pool and stall every tenant.
+const quotaLockTimeout = 2 * time.Second
+
+// lockTimeoutSQL applies the bound to the current transaction only, so it
+// rolls back with it and never leaks into a pooled connection.
+var lockTimeoutSQL = fmt.Sprintf("SET LOCAL lock_timeout = '%dms'", quotaLockTimeout.Milliseconds())
+
+// lockErr labels a bounded-wait timeout as a fail-open condition instead of
+// an internal error: the caller admits the submit without the quota check.
+func lockErr(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "55P03" { // lock_not_available
+		return fmt.Errorf("quota lock: timed out after %s waiting for tenant lock (failing open): %w", quotaLockTimeout, err)
+	}
+	return fmt.Errorf("quota lock: %w", err)
+}
+
 // querier is the storedb surface quota checks need. *storedb.Queries
 // satisfies it; unit tests supply fakes.
 type querier interface {
@@ -122,8 +146,11 @@ func (c *PostgresChecker) CheckAndCreate(ctx context.Context, tenantID string, p
 	if err != nil {
 		return storedb.CreateExecutionRow{}, Decision{}, fmt.Errorf("quota tenant: %w", err)
 	}
+	if _, err := tx.Exec(ctx, lockTimeoutSQL); err != nil {
+		return storedb.CreateExecutionRow{}, Decision{}, fmt.Errorf("quota lock timeout setting: %w", err)
+	}
 	if _, err := tx.Exec(ctx, advisoryLockSQL, store.PgToString(tenantUUID)); err != nil {
-		return storedb.CreateExecutionRow{}, Decision{}, fmt.Errorf("quota lock: %w", err)
+		return storedb.CreateExecutionRow{}, Decision{}, lockErr(err)
 	}
 	q := storedb.New(tx)
 	d, err := checkCounts(ctx, q, tenantUUID, c.Clock())

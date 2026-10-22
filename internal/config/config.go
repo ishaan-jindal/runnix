@@ -14,7 +14,7 @@ type Config struct {
 	DatabaseURL string
 	NATSURL     string
 	JWTSecret   string
-	Environment string // development | staging | production
+	Environment string // development | staging | production ("" = unset)
 
 	// Dispatcher execution loop.
 	ExecWorkers   int    // EXEC_WORKERS: concurrent sandbox workers
@@ -38,10 +38,12 @@ type Config struct {
 // Load reads configuration from the environment with sane local defaults.
 func Load() (Config, error) {
 	cfg := Config{
-		Port:             4000,
-		DatabaseURL:      "postgres://runnix:runnix@localhost:5432/runnix?sslmode=disable",
-		NATSURL:          "nats://localhost:4222",
-		Environment:      "development",
+		Port:        4000,
+		DatabaseURL: "postgres://runnix:runnix@localhost:5432/runnix?sslmode=disable",
+		NATSURL:     "nats://localhost:4222",
+		// No ENV default: only an explicit ENV=development disables the
+		// JWT_SECRET requirement. An unset ENV must fail closed rather
+		// than silently run tenant routes unauthenticated.
 		ExecWorkers:      2,
 		RunnerImage:      "runnix-runner-python:local",
 		RunnerRuntime:    "runsc",
@@ -116,8 +118,11 @@ func Load() (Config, error) {
 		cfg.StaleQueuedAfter = d
 	}
 	cfg.JWTSecret = os.Getenv("JWT_SECRET")
+	// Fail closed: without a secret the gateway serves tenant routes with no
+	// auth, so only an exact ENV=development may omit it. Empty or unknown
+	// ENV (forgotten env var, typo) refuses to boot instead of running open.
 	if cfg.Environment != "development" && cfg.JWTSecret == "" {
-		return Config{}, fmt.Errorf("JWT_SECRET is required outside development")
+		return Config{}, fmt.Errorf("JWT_SECRET is required unless ENV=development (ENV=%q)", cfg.Environment)
 	}
 	cfg.WebhookSigningSecret = os.Getenv("WEBHOOK_SIGNING_SECRET")
 	return cfg, nil

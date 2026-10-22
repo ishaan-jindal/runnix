@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Execution attribution: every new `executions` row records the submitting
+  user (`submitted_by_user_id`) and, when the request was authenticated with
+  an API key, the key id (`submitted_by_api_key_id`). Both columns are
+  nullable with `ON DELETE SET NULL`: pre-existing and dev-mode runs have no
+  actor, and deleting a user or key keeps the execution history intact.
 - Per-tenant submit quotas: `POST /executions` enforces a trailing-hour
   submit cap plus a concurrent (queued + running) execution cap per tier
   (free 60/hr + 2 active, starter 600/hr + 5, professional 6000/hr + 20,
@@ -23,6 +28,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MaxDeliver 5`; set `0` to disable). Counted as `failed` for quota
   purposes, so a poison submit no longer permanently consumes a free
   tier's active cap with a misleading `429`.
+
+### Changed
+
+- `ENV` no longer defaults to `development`. Only an explicit
+  `ENV=development` may run without `JWT_SECRET`; an unset or misspelled
+  `ENV` now refuses to boot instead of silently serving tenant routes
+  unauthenticated. The laptop compose stack already sets
+  `ENV=development`, so `just compose-up` is unchanged.
+
+### Fixed
+
+- Gateway HTTP server sets `ReadHeaderTimeout` (5 s), `ReadTimeout` (15 s),
+  `WriteTimeout` (30 s), and `IdleTimeout` (60 s), so slow or stuck clients
+  can no longer hold connections open indefinitely.
+- Quota checks bound the per-tenant advisory-lock wait to 2 s
+  (`SET LOCAL lock_timeout`). A wedged backend can no longer pile up
+  blocked submits — and with them shared pool connections — until unrelated
+  tenants stall; a timeout fails open as before.
+- Reaper sweeps use partial indexes on `executions(updated_at)` where
+  `status='running'` and `executions(created_at)` where `status='queued'`
+  instead of scanning the whole table.
+- Dispatcher retries: a sandbox failure before the container starts
+  (`create`/`attach`/`start`) returns the execution to `queued` and lets
+  JetStream redelivery re-claim it, so a transient Docker blip no longer
+  permanently fails the run. Failures after start are recorded as `failed`
+  and acked instead of re-run, so code is never executed twice. A failed
+  result write is retried in place three times before giving up.
+- The submit queue carries references only (`execution_id`, `tenant_id`,
+  `language`). The dispatcher loads source, stdin, timeout, and
+  `webhook_url` from the row it claims, so webhooks now fire for the
+  persisted URL and the queue no longer duplicates up to 100 KiB of source
+  per message.
 
 ## [0.1.1] - 2026-09-12
 
