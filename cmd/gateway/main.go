@@ -76,16 +76,21 @@ func main() {
 		routerCfg.NATS = natsClient
 	}
 	routerCfg.ReadyCheck = readiness(db, natsClient)
-	if db != nil && cfg.JWTSecret == "" {
-		// Development only (config refuses to boot without a secret
-		// elsewhere): tenant routes serve without authentication.
-		log.Print("gateway: WARNING: JWT_SECRET is empty — tenant routes are unauthenticated")
+	if cfg.Environment == "development" && cfg.JWTSecret == "" {
+		// Unreachable in any other environment: config refuses to boot
+		// without a secret. Tenant routes serve without authentication here.
+		log.Print("gateway: WARNING: ENV=development with empty JWT_SECRET — tenant routes are unauthenticated")
 	}
 	handler := gwhttp.NewRouter(routerCfg)
 	srv := &http.Server{Addr: cfg.Addr(), Handler: handler}
 
+	env := cfg.Environment
+	if env == "" {
+		env = "unset"
+	}
+
 	go func() {
-		log.Printf("gateway listening on %s (%s)", cfg.Addr(), cfg.Environment)
+		log.Printf("gateway listening on %s (%s)", cfg.Addr(), env)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %v", err)
 		}

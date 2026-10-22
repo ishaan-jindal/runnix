@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `ENV` no longer defaults to `development`. Only an explicit
+  `ENV=development` may run without `JWT_SECRET`; an unset or misspelled
+  `ENV` now refuses to boot instead of silently serving tenant routes
+  unauthenticated. The laptop compose stack already sets
+  `ENV=development`, so `just compose-up` is unchanged.
+
 ### Added
 
 - Execution attribution: every new `executions` row records the submitting
