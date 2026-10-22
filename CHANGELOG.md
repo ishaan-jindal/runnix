@@ -31,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Dispatcher retries: a sandbox failure before the container starts
+  (`create`/`attach`/`start`) returns the execution to `queued` and lets
+  JetStream redelivery re-claim it, so a transient Docker blip no longer
+  permanently fails the run. Failures after start are recorded as `failed`
+  and acked instead of re-run, so code is never executed twice. A failed
+  result write is retried in place three times before giving up.
 - The submit queue carries references only (`execution_id`, `tenant_id`,
   `language`). The dispatcher loads source, stdin, timeout, and
   `webhook_url` from the row it claims, so webhooks now fire for the

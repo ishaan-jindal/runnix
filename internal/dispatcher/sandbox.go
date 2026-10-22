@@ -45,10 +45,17 @@ type RunResult struct {
 	OOMKilled bool
 }
 
+// errNotStarted marks Run failures raised before the sandbox container was
+// started (create/attach/start). Nothing executed, so the dispatcher may
+// safely requeue the row and let the redelivery re-claim it.
+var errNotStarted = errors.New("sandbox not started")
+
 // Runner executes one claimed execution. Implementations must be safe for one
 // concurrent Run at a time per instance.
 type Runner interface {
-	// Run stages and executes exec, returning the outcome.
+	// Run stages and executes exec, returning the outcome. A failure before
+	// the container starts wraps errNotStarted; any other error means the
+	// code may have run.
 	Run(ctx context.Context, exec ClaimedExecution) (RunResult, error)
 }
 
@@ -147,7 +154,7 @@ func (r *dockerRunner) Run(ctx context.Context, exec ClaimedExecution) (RunResul
 			created, err = r.cli.ContainerCreate(ctx, cfg, host, nil, nil, name)
 		}
 		if err != nil {
-			return RunResult{}, fmt.Errorf("create container: %w", err)
+			return RunResult{}, fmt.Errorf("%w: create container: %w", errNotStarted, err)
 		}
 	}
 	defer func() {
@@ -156,18 +163,20 @@ func (r *dockerRunner) Run(ctx context.Context, exec ClaimedExecution) (RunResul
 
 	hij, err := r.cli.ContainerAttach(ctx, created.ID, container.AttachOptions{Stream: true, Stdin: true})
 	if err != nil {
-		return RunResult{}, fmt.Errorf("attach: %w", err)
+		return RunResult{}, fmt.Errorf("%w: attach: %w", errNotStarted, err)
 	}
 	defer hij.Close()
 
 	if err := r.cli.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
-		return RunResult{}, fmt.Errorf("start container: %w", err)
+		return RunResult{}, fmt.Errorf("%w: start container: %w", errNotStarted, err)
 	}
 	if _, err := hij.Conn.Write(workArchive(exec.Source, exec.Stdin)); err != nil {
 		return RunResult{}, fmt.Errorf("send work archive: %w", err)
 	}
 	_ = hij.CloseWrite()
 
+	// timeout_s is validated 1-60 by the gateway before insert and has no
+	// other writer, so the persisted value needs no second clamp here.
 	res, err := r.wait(ctx, created.ID, time.Duration(exec.TimeoutS)*time.Second)
 	if err != nil {
 		return res, err

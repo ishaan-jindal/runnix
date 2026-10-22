@@ -31,6 +31,15 @@ SET status = 'running', updated_at = now()
 WHERE id = $1 AND status = 'queued'
 RETURNING id, tenant_id, language, source, stdin, timeout_s, webhook_url;
 
+-- name: RequeueExecution :execrows
+-- Returns a claimed execution to the queue after a pre-start runner failure
+-- (nothing executed). The status guard leaves a row alone if it is no longer
+-- running, so a concurrent reaper or a duplicate delivery cannot resurrect a
+-- finished execution.
+UPDATE executions
+SET status = 'queued', updated_at = now()
+WHERE id = $1 AND status = 'running';
+
 -- name: FinishExecution :exec
 -- Writes a result for a running execution. status is one of
 -- succeeded/failed/timeout (validated by the status CHECK constraint).

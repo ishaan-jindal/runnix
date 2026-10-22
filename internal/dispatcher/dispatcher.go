@@ -28,6 +28,11 @@ const (
 	ackWait            = 90 * time.Second
 	nakDelay           = 5 * time.Second
 	poisonStderrPrefix = "submit message discarded"
+
+	// Result writes retry in place: losing a completed run is worse than a
+	// few extra milliseconds of guard on the single UPDATE that persists it.
+	finishAttempts = 3
+	finishBackoff  = 100 * time.Millisecond
 )
 
 // ClaimedExecution is the row the dispatcher claimed. The queue message only
@@ -40,6 +45,7 @@ type ClaimedExecution = storedb.MarkExecutionRunningRow
 type Store interface {
 	MarkExecutionRunning(ctx context.Context, id pgtype.UUID) (ClaimedExecution, error)
 	FinishExecution(ctx context.Context, arg storedb.FinishExecutionParams) error
+	RequeueExecution(ctx context.Context, id pgtype.UUID) (int64, error)
 }
 
 // ResultPublisher publishes result summaries. *rnats.Client satisfies it.
@@ -142,7 +148,9 @@ func (d *Dispatcher) worker(ctx context.Context, c jetstream.Consumer) {
 
 		if err := d.handle(ctx, msg.Data()); err != nil {
 			d.Logger.Printf("handle execution: %v", err)
-			_ = msg.NakWithDelay(nakDelay) // claim guard makes redelivery safe
+			// handle only returns errors for pre-start failures (row requeued)
+			// and result-write exhaustion; neither path can double-execute.
+			_ = msg.NakWithDelay(nakDelay)
 		} else {
 			_ = msg.Ack()
 		}
@@ -182,15 +190,28 @@ func (d *Dispatcher) handle(ctx context.Context, raw []byte) error {
 	started := time.Now()
 	res, err := d.Runner.Run(ctx, exec)
 	if err != nil {
-		// Runner failed before producing an outcome: record it failed so it
-		// is not stuck "running", then let redelivery see the claim guard.
-		_ = d.Store.FinishExecution(ctx, storedb.FinishExecutionParams{
+		if errors.Is(err, errNotStarted) {
+			// Nothing ran, so a retry cannot double-execute. Return the row
+			// to the queue and NAK; the redelivery re-claims it. Each attempt
+			// burns one of MaxDeliver (5); a permanently broken daemon
+			// exhausts those and the stale-queued reaper fails the row once
+			// its created_at ages out.
+			if _, rerr := d.Store.RequeueExecution(ctx, exec.ID); rerr != nil {
+				d.Logger.Printf("requeue %s: %v", msg.ExecutionID, rerr)
+			}
+			return err
+		}
+		// The container started: the code may have run, so re-running it
+		// could execute it twice. Record the failure and ack.
+		if ferr := d.finish(ctx, storedb.FinishExecutionParams{
 			ID:     exec.ID,
 			Status: "failed",
 			Stderr: "runner error: " + err.Error(),
-		})
+		}); ferr != nil {
+			d.Logger.Printf("record runner failure for %s: %v", msg.ExecutionID, ferr)
+		}
 		d.deliverWebhook(ctx, msg, exec, "failed", nil, time.Since(started))
-		return err
+		return nil
 	}
 
 	status, exitCode, stderr := classify(res)
@@ -198,7 +219,7 @@ func (d *Dispatcher) handle(ctx context.Context, raw []byte) error {
 	if exitCode != nil {
 		exitPG = pgtype.Int4{Int32: int32(*exitCode), Valid: true}
 	}
-	if err := d.Store.FinishExecution(ctx, storedb.FinishExecutionParams{
+	if err := d.finish(ctx, storedb.FinishExecutionParams{
 		ID:       exec.ID,
 		Status:   status,
 		Stdout:   res.Stdout,
@@ -221,6 +242,30 @@ func (d *Dispatcher) handle(ctx context.Context, raw []byte) error {
 
 	d.deliverWebhook(ctx, msg, exec, status, exitCode, time.Since(started))
 	return nil
+}
+
+// finish persists a result, retrying transient failures with short bounded
+// backoff. This is the write that must land: a lost result is unrecoverable,
+// and a redelivery cannot recover it (the claim guard only claims queued
+// rows). The loop honours ctx's deadline instead of outliving it.
+func (d *Dispatcher) finish(ctx context.Context, arg storedb.FinishExecutionParams) error {
+	var err error
+	delay := finishBackoff
+	for attempt := 1; attempt <= finishAttempts; attempt++ {
+		if err = d.Store.FinishExecution(ctx, arg); err == nil {
+			return nil
+		}
+		if attempt == finishAttempts {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(delay):
+			delay *= 2
+		}
+	}
+	return err
 }
 
 // deliverWebhook POSTs the completion event to the webhook_url stored on the

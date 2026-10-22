@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ishaan-jindal/runnix/internal/store"
 	"github.com/ishaan-jindal/runnix/internal/store/storedb"
@@ -45,9 +47,12 @@ func claimedRow(t *testing.T) ClaimedExecution {
 }
 
 type fakeStore struct {
-	claim    ClaimedExecution
-	claimErr error
-	finished []storedb.FinishExecutionParams
+	claim      ClaimedExecution
+	claimErr   error
+	finished   []storedb.FinishExecutionParams
+	finishErrs []error // consumed one per FinishExecution call; empty = success
+	requeued   []pgtype.UUID
+	requeueErr error
 }
 
 func (f *fakeStore) MarkExecutionRunning(context.Context, pgtype.UUID) (ClaimedExecution, error) {
@@ -56,7 +61,17 @@ func (f *fakeStore) MarkExecutionRunning(context.Context, pgtype.UUID) (ClaimedE
 
 func (f *fakeStore) FinishExecution(_ context.Context, arg storedb.FinishExecutionParams) error {
 	f.finished = append(f.finished, arg)
+	if len(f.finishErrs) > 0 {
+		err := f.finishErrs[0]
+		f.finishErrs = f.finishErrs[1:]
+		return err
+	}
 	return nil
+}
+
+func (f *fakeStore) RequeueExecution(_ context.Context, id pgtype.UUID) (int64, error) {
+	f.requeued = append(f.requeued, id)
+	return 1, f.requeueErr
 }
 
 type fakeRunner struct {
@@ -161,6 +176,19 @@ func TestHandleDuplicateClaimSkipped(t *testing.T) {
 	}
 }
 
+func TestHandleClaimErrorNaks(t *testing.T) {
+	st := &fakeStore{claimErr: errors.New("db down")}
+	run := &fakeRunner{}
+	d := newDispatcher(t, st, run, &fakePub{})
+
+	if err := d.handle(context.Background(), mustJSON(t, submitMsg())); err == nil {
+		t.Fatal("handle = nil, want error to trigger nak")
+	}
+	if run.runs != 0 {
+		t.Fatalf("runner ran %d times, want 0", run.runs)
+	}
+}
+
 func TestHandlePoisonMessages(t *testing.T) {
 	st := &fakeStore{claim: claimedRow(t)}
 	d := newDispatcher(t, st, &fakeRunner{}, &fakePub{})
@@ -230,6 +258,133 @@ func TestHandleNonZeroExit(t *testing.T) {
 	}
 }
 
+// TestHandleRunnerErrors covers the two error classes: a pre-start failure
+// never ran code and is requeued for redelivery; a post-start failure may
+// have run and must be recorded and acked instead of re-run.
+func TestHandleRunnerErrors(t *testing.T) {
+	tests := []struct {
+		name         string
+		runErr       error
+		wantHandle   bool // handle returns an error (NAK)
+		wantRequeued int
+		wantFinished int
+		wantStatus   string
+		wantWebhooks int
+	}{
+		{
+			name:         "pre-start failure is requeued",
+			runErr:       fmt.Errorf("%w: start container: daemon down", errNotStarted),
+			wantHandle:   true,
+			wantRequeued: 1,
+		},
+		{
+			name:         "post-start failure is recorded and acked",
+			runErr:       errors.New("read logs: broken pipe"),
+			wantFinished: 1,
+			wantStatus:   "failed",
+			wantWebhooks: 1,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			st := &fakeStore{claim: claimedRow(t)}
+			st.claim.WebhookUrl = pgtype.Text{String: "https://hooks.example.com/done", Valid: true}
+			run := &fakeRunner{err: tc.runErr}
+			hooks := &fakeWebhooks{}
+			d := newDispatcher(t, st, run, &fakePub{})
+			d.Webhooks = hooks
+
+			err := d.handle(context.Background(), mustJSON(t, submitMsg()))
+			if (err != nil) != tc.wantHandle {
+				t.Fatalf("handle = %v, want error %v", err, tc.wantHandle)
+			}
+			if run.runs != 1 {
+				t.Fatalf("runner ran %d times, want 1", run.runs)
+			}
+			if len(st.requeued) != tc.wantRequeued {
+				t.Fatalf("requeued = %d, want %d", len(st.requeued), tc.wantRequeued)
+			}
+			if tc.wantRequeued > 0 && st.requeued[0] != st.claim.ID {
+				t.Fatalf("requeued id = %x, want %x", st.requeued[0].Bytes, st.claim.ID.Bytes)
+			}
+			if len(st.finished) != tc.wantFinished {
+				t.Fatalf("finished = %d, want %d", len(st.finished), tc.wantFinished)
+			}
+			if tc.wantFinished > 0 {
+				f := st.finished[0]
+				if f.Status != tc.wantStatus || !strings.Contains(f.Stderr, "runner error") {
+					t.Fatalf("finish = %+v", f)
+				}
+			}
+			if len(hooks.events) != tc.wantWebhooks {
+				t.Fatalf("webhook deliveries = %d, want %d", len(hooks.events), tc.wantWebhooks)
+			}
+		})
+	}
+}
+
+func TestHandleFinishRetries(t *testing.T) {
+	st := &fakeStore{
+		claim:      claimedRow(t),
+		finishErrs: []error{errors.New("tx reset"), errors.New("tx reset")},
+	}
+	run := &fakeRunner{res: RunResult{ExitCode: 0, Stdout: "1\n"}}
+	pub := &fakePub{}
+	d := newDispatcher(t, st, run, pub)
+
+	if err := d.handle(context.Background(), mustJSON(t, submitMsg())); err != nil {
+		t.Fatalf("handle = %v, want the retried write to land", err)
+	}
+	if len(st.finished) != finishAttempts {
+		t.Fatalf("finish attempts = %d, want %d", len(st.finished), finishAttempts)
+	}
+	if len(pub.msgs) != 1 {
+		t.Fatalf("result publishes = %d, want 1", len(pub.msgs))
+	}
+}
+
+func TestHandleFinishGivesUp(t *testing.T) {
+	st := &fakeStore{
+		claim:      claimedRow(t),
+		finishErrs: []error{errors.New("tx reset"), errors.New("tx reset"), errors.New("tx reset")},
+	}
+	run := &fakeRunner{res: RunResult{ExitCode: 0, Stdout: "1\n"}}
+	pub := &fakePub{}
+	d := newDispatcher(t, st, run, pub)
+
+	if err := d.handle(context.Background(), mustJSON(t, submitMsg())); err == nil {
+		t.Fatal("handle = nil, want the write failure surfaced")
+	}
+	if len(st.finished) != finishAttempts {
+		t.Fatalf("finish attempts = %d, want %d", len(st.finished), finishAttempts)
+	}
+	if len(pub.msgs) != 0 {
+		t.Fatalf("result publishes = %d, want 0 after a failed write", len(pub.msgs))
+	}
+}
+
+func TestHandleFinishStopsOnCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	st := &fakeStore{
+		claim:      claimedRow(t),
+		finishErrs: []error{errors.New("tx reset"), errors.New("tx reset"), errors.New("tx reset")},
+	}
+	d := newDispatcher(t, st, &fakeRunner{res: RunResult{ExitCode: 0}}, &fakePub{})
+
+	start := time.Now()
+	if err := d.handle(ctx, mustJSON(t, submitMsg())); err == nil {
+		t.Fatal("handle = nil, want the write failure surfaced")
+	}
+	// The loop must not sleep out its backoff once ctx is done.
+	if took := time.Since(start); took > finishBackoff {
+		t.Fatalf("handle took %s after ctx cancellation, want <= %s", took, finishBackoff)
+	}
+	if len(st.finished) != 1 {
+		t.Fatalf("finish attempts = %d, want 1", len(st.finished))
+	}
+}
+
 func TestHandleDeliversWebhook(t *testing.T) {
 	st := &fakeStore{claim: claimedRow(t)}
 	st.claim.WebhookUrl = pgtype.Text{String: "https://hooks.example.com/done", Valid: true}
@@ -254,20 +409,16 @@ func TestHandleDeliversWebhook(t *testing.T) {
 	}
 }
 
-func TestHandleRunnerErrorRecordsFailure(t *testing.T) {
+func TestHandleWebhookOnPostStartRunnerError(t *testing.T) {
 	st := &fakeStore{claim: claimedRow(t)}
 	st.claim.WebhookUrl = pgtype.Text{String: "https://hooks.example.com/done", Valid: true}
-	run := &fakeRunner{err: errors.New("sandbox exploded")}
+	run := &fakeRunner{err: errors.New("read logs: broken pipe")}
 	hooks := &fakeWebhooks{}
 	d := newDispatcher(t, st, run, &fakePub{})
 	d.Webhooks = hooks
 
-	if err := d.handle(context.Background(), mustJSON(t, submitMsg())); err == nil {
-		t.Fatal("handle = nil, want error to trigger nak")
-	}
-	if len(st.finished) != 1 || st.finished[0].Status != "failed" ||
-		!strings.Contains(st.finished[0].Stderr, "runner error") {
-		t.Fatalf("finished = %+v, want one failed row", st.finished)
+	if err := d.handle(context.Background(), mustJSON(t, submitMsg())); err != nil {
+		t.Fatalf("handle = %v, want nil (post-start error is terminal)", err)
 	}
 	if len(hooks.events) != 1 || hooks.events[0].Status != "failed" || hooks.events[0].ExitCode != nil {
 		t.Fatalf("events = %+v, want one failed with null exit_code", hooks.events)

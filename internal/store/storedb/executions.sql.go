@@ -314,6 +314,24 @@ func (q *Queries) ReapStaleExecutions(ctx context.Context, arg ReapStaleExecutio
 	return result.RowsAffected(), nil
 }
 
+const requeueExecution = `-- name: RequeueExecution :execrows
+UPDATE executions
+SET status = 'queued', updated_at = now()
+WHERE id = $1 AND status = 'running'
+`
+
+// Returns a claimed execution to the queue after a pre-start runner failure
+// (nothing executed). The status guard leaves a row alone if it is no longer
+// running, so a concurrent reaper or a duplicate delivery cannot resurrect a
+// finished execution.
+func (q *Queries) RequeueExecution(ctx context.Context, id pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, requeueExecution, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const setExecutionFailed = `-- name: SetExecutionFailed :exec
 UPDATE executions
 SET status = 'failed', stderr = $2, updated_at = now()
