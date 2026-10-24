@@ -18,6 +18,7 @@ type ctxKey string
 const (
 	ctxUserKey   ctxKey = "user_id"
 	ctxTenantKey ctxKey = "tenant_id"
+	ctxAPIKeyKey ctxKey = "api_key_id"
 )
 
 // RequestID ensures every response carries X-Request-ID (generate if absent).
@@ -74,6 +75,13 @@ func UserIDFrom(ctx context.Context) string {
 // TenantIDFrom returns the resolved tenant id from context.
 func TenantIDFrom(ctx context.Context) string {
 	v, _ := ctx.Value(ctxTenantKey).(string)
+	return v
+}
+
+// APIKeyIDFrom returns the API key id that authenticated the request, or ""
+// when the request used a JWT (or no auth). Used for execution attribution.
+func APIKeyIDFrom(ctx context.Context) string {
+	v, _ := ctx.Value(ctxAPIKeyKey).(string)
 	return v
 }
 
@@ -201,6 +209,7 @@ func RequireAuthWithAPIKeys(secret string, check MembershipChecker, keys APIKeyC
 			}
 			ctx := context.WithValue(r.Context(), ctxUserKey, userID)
 			ctx = context.WithValue(ctx, ctxTenantKey, tenantID)
+			ctx = context.WithValue(ctx, ctxAPIKeyKey, keyID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

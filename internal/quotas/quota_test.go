@@ -2,10 +2,13 @@ package quotas
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ishaan-jindal/runnix/internal/store/storedb"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -149,5 +152,24 @@ func TestNewPostgresCheckerClock(t *testing.T) {
 	pinned := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	if c := NewPostgresChecker(nil, func() time.Time { return pinned }); !c.Clock().Equal(pinned) {
 		t.Fatalf("custom clock not honored, got %v", c.Clock())
+	}
+}
+
+// TestLockErr proves a lock_timeout failure is labeled as a bounded wait (the
+// caller fails open) and other lock errors keep the plain wrap.
+func TestLockErr(t *testing.T) {
+	if !strings.Contains(lockTimeoutSQL, "SET LOCAL lock_timeout") || !strings.Contains(lockTimeoutSQL, "2000ms") {
+		t.Fatalf("lockTimeoutSQL = %q, want transaction-scoped 2s", lockTimeoutSQL)
+	}
+	timeout := &pgconn.PgError{Code: "55P03", Message: "canceling statement due to lock timeout"}
+	err := lockErr(timeout)
+	if !strings.Contains(err.Error(), "timed out after 2s") || !strings.Contains(err.Error(), "failing open") {
+		t.Fatalf("lock timeout should read as fail-open, got %v", err)
+	}
+	if !errors.Is(err, timeout) {
+		t.Fatal("underlying error must stay in the chain for logs")
+	}
+	if got := lockErr(errors.New("connection reset")).Error(); got != "quota lock: connection reset" {
+		t.Fatalf("non-timeout wrap = %q", got)
 	}
 }

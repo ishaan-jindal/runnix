@@ -158,13 +158,13 @@ func TestCreateSuccessPublishes(t *testing.T) {
 		t.Fatalf("published %d messages, want 1", len(pub.msgs))
 	}
 	msg := pub.msgs[0]
-	if msg.ExecutionID != testExecID || msg.TenantID != testTenantID ||
-		msg.Language != "python" || msg.Source != "print('hi')" ||
-		msg.Stdin != "in" || msg.TimeoutS != DefaultTimeoutS {
+	if msg.ExecutionID != testExecID || msg.TenantID != testTenantID || msg.Language != "python" {
 		t.Fatalf("submit message = %+v", msg)
 	}
-	if msg.WebhookURL != "https://93.184.216.34/done" {
-		t.Fatalf("webhook_url = %q, want it forwarded", msg.WebhookURL)
+	// The payload is references only: content travels via the DB row.
+	if st.lastCreate.Source != "print('hi')" || st.lastCreate.Stdin != "in" ||
+		!st.lastCreate.WebhookUrl.Valid || st.lastCreate.WebhookUrl.String != "https://93.184.216.34/done" {
+		t.Fatalf("create params = %+v", st.lastCreate)
 	}
 }
 

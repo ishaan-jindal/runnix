@@ -11,10 +11,6 @@ func TestSubmitMessageRoundTrip(t *testing.T) {
 		ExecutionID: "exec-1",
 		TenantID:    "tenant-1",
 		Language:    "python",
-		Source:      "print('hi')",
-		Stdin:       "in",
-		TimeoutS:    5,
-		WebhookURL:  "https://example.com/hook",
 	}
 	raw, err := json.Marshal(in)
 	if err != nil {
@@ -29,8 +25,8 @@ func TestSubmitMessageRoundTrip(t *testing.T) {
 	}
 }
 
-func TestSubmitMessageOmitsEmptyWebhook(t *testing.T) {
-	raw, err := json.Marshal(SubmitMessage{ExecutionID: "e"})
+func TestSubmitMessageCarriesReferencesOnly(t *testing.T) {
+	raw, err := json.Marshal(SubmitMessage{ExecutionID: "e", TenantID: "t", Language: "python"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +34,12 @@ func TestSubmitMessageOmitsEmptyWebhook(t *testing.T) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := m["webhook_url"]; ok {
-		t.Fatalf("webhook_url should be omitted when empty: %s", raw)
+	for _, key := range []string{"source", "stdin", "timeout_s", "webhook_url"} {
+		if _, ok := m[key]; ok {
+			t.Fatalf("%s must not travel on the queue: %s", key, raw)
+		}
+	}
+	if len(m) != 3 {
+		t.Fatalf("submit message = %s, want exactly execution_id/tenant_id/language", raw)
 	}
 }
