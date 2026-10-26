@@ -14,7 +14,7 @@ gets you from zero to a passing PR.
 ```bash
 just compose-up          # postgres:16 + nats:2 + gateway/dispatcher (+ runner image build)
 curl localhost:4000/healthz
-curl localhost:4000/languages   # currently ["python"]
+curl localhost:4000/languages   # ["python","javascript","go","java","ruby","rust","cpp"]
 ```
 
 Register, submit, poll (full walkthrough in `README.md` Quickstart).

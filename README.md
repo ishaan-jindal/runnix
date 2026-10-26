@@ -49,7 +49,7 @@ Full shapes in `api/openapi.yaml`.
 | Method & path | Description |
 |---|---|
 | `GET /healthz`, `GET /readyz` | Liveness; readiness (Postgres + NATS) |
-| `GET /languages` | Supported languages (`["python"]`) |
+| `GET /languages` | Supported languages (`["python","javascript","go","java","ruby","rust","cpp"]`) |
 | `POST /auth/register` | Create user + personal tenant, token pair |
 | `POST /auth/login` | Token pair by email or username |
 | `POST /auth/refresh` | Rotated token pair |
@@ -114,7 +114,7 @@ Laptop path stays `just compose-up` (`deploy/compose.yaml`).
 | `WEBHOOK_SIGNING_SECRET` | — (empty) | Enables `webhook_url`; same on gateway + dispatcher |
 | `WEBHOOK_ALLOW_PRIVATE` | `false` | Allow private hosts (dev/tests only) |
 | `EXEC_WORKERS` | `2` | Dispatcher worker pool size |
-| `RUNNER_IMAGE` | `runnix-runner-python:local` | Untrusted-code image |
+| `RUNNER_IMAGE` | `runnix-runner:local` | Untrusted-code image (python, javascript, go, java, ruby, rust, cpp) |
 | `RUNNER_RUNTIME` | `runsc` | Container runtime (`""` = default) |
 | `QUOTAS_ENABLED` | `true` | Enforce quotas on `POST /executions` |
 | `REAP_INTERVAL` | `1m` | Stale-running sweep frequency |
@@ -140,8 +140,8 @@ empty: unset `ENV` fails closed rather than serving unauthenticated.
 ## Security model
 
 - **Sandbox** — per-execution container: gVisor, UID/GID 65534, no network,
-  read-only rootfs (+ writable `/tmp`, `/work`), `cap-drop: ALL`, 128 MB RAM
-  (+128 MB swap), 0.5 CPU, 32 pids, 1–60 s timeout, 64 KiB output cap each,
+  read-only rootfs (+ writable `/tmp`, `/work`), `cap-drop: ALL`, 192 MB RAM
+  (+192 MB swap), 0.5 CPU, 32 pids, 1–60 s timeout, 64 KiB output cap each,
   OOM reported as failure.
 - **Tenancy** — users ↔ tenants many-to-many via `memberships`, re-checked
   per request; cross-tenant reads return `404`.
