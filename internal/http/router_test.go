@@ -34,8 +34,18 @@ func TestHealthAndLanguages(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Languages) != 1 || body.Languages[0] != "python" {
-		t.Fatalf("languages = %v, want [python]", body.Languages)
+	want := map[string]bool{
+		"python": true, "javascript": true, "go": true, "java": true,
+		"ruby": true, "rust": true, "cpp": true,
+	}
+	if len(body.Languages) != len(want) {
+		t.Fatalf("languages = %v, want %d entries", body.Languages, len(want))
+	}
+	for _, lang := range body.Languages {
+		if !want[lang] {
+			t.Fatalf("unexpected language %q (got %v)", lang, body.Languages)
+		}
+		delete(want, lang)
 	}
 }
 

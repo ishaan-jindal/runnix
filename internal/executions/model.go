@@ -4,9 +4,9 @@ package executions
 
 import "slices"
 
-// SupportedLanguages is the allowlist. Python only for now;
-// other languages arrive later (deferred: <lang>-runner).
-var SupportedLanguages = []string{"python"}
+// SupportedLanguages is the allowlist served by the single polyglot sandbox
+// image (runner/docker), which dispatches on the language ID.
+var SupportedLanguages = []string{"python", "javascript", "go", "java", "ruby", "rust", "cpp"}
 
 // ValidLanguage reports whether lang is supported.
 func ValidLanguage(lang string) bool {

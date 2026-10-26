@@ -200,7 +200,7 @@ paths:
               required: [tenant_id, language, source]
               properties:
                 tenant_id: { type: string, format: uuid, description: must equal X-Tenant-ID }
-                language: { type: string, enum: [python] }
+                language: { type: string, enum: [python, javascript, go, java, ruby, rust, cpp] }
                 source: { type: string, maxLength: 102400 }
                 stdin: { type: string, maxLength: 102400 }
                 timeout_s: { type: integer, minimum: 1, maximum: 60, default: 2 }
