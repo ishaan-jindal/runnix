@@ -24,9 +24,11 @@ import (
 )
 
 // Sandbox resource bounds.
+// ponytail: single global bound; per-language bounds if this gets wasteful
+// (go toolchain needs ~192m, the rest fit 128m).
 const (
-	sandboxMemory   = 128 * 1024 * 1024      // 128m
-	sandboxMemorySw = 256 * 1024 * 1024      // 128m mem + 128m swap
+	sandboxMemory   = 192 * 1024 * 1024      // 192m
+	sandboxMemorySw = 384 * 1024 * 1024      // 192m mem + 192m swap
 	sandboxNanoCPUs = 500_000_000            // 0.5 CPU
 	sandboxPids     = 32                     // pids-limit
 	sandboxTmpSize  = 64 * 1024 * 1024       // tmpfs /tmp cap
@@ -49,6 +51,35 @@ type RunResult struct {
 // started (create/attach/start). Nothing executed, so the dispatcher may
 // safely requeue the row and let the redelivery re-claim it.
 var errNotStarted = errors.New("sandbox not started")
+
+// langSpec is one language's source filename inside /work and the shell
+// command that runs it. The command runs as part of /bin/sh -c after the tar
+// extract, so it must be valid sh.
+type langSpec struct {
+	file string
+	cmd  string
+}
+
+// langCommands maps an execution language to its sandbox file and command.
+var langCommands = map[string]langSpec{
+	"python":     {"main.py", "exec python /work/main.py < /work/stdin.txt"},
+	"javascript": {"main.js", "exec node /work/main.js < /work/stdin.txt"},
+	"go":         {"main.go", "exec go run /work/main.go < /work/stdin.txt"},
+	"java":       {"Main.java", "exec java /work/Main.java < /work/stdin.txt"},
+	"ruby":       {"main.rb", "exec ruby /work/main.rb < /work/stdin.txt"},
+	"rust":       {"main.rs", "exec sh -c 'rustc /work/main.rs -o /tmp/main && exec /tmp/main < /work/stdin.txt'"},
+	"cpp":        {"main.cpp", "exec sh -c 'g++ /work/main.cpp -o /tmp/main && exec /tmp/main < /work/stdin.txt'"},
+}
+
+// resolveLang normalizes lang and returns its sandbox spec. Unknown languages
+// fail as errNotStarted: nothing has run yet, so the dispatcher may requeue.
+func resolveLang(lang string) (langSpec, error) {
+	spec, ok := langCommands[strings.ToLower(strings.TrimSpace(lang))]
+	if !ok {
+		return langSpec{}, fmt.Errorf("%w: unsupported language %q", errNotStarted, lang)
+	}
+	return spec, nil
+}
 
 // Runner executes one claimed execution. Implementations must be safe for one
 // concurrent Run at a time per instance.
@@ -113,12 +144,25 @@ func (r *dockerRunner) Sweep(ctx context.Context) error {
 // both when the dispatcher runs on the host and when it drives Docker through
 // a mounted socket from inside its own container.
 func (r *dockerRunner) Run(ctx context.Context, exec ClaimedExecution) (RunResult, error) {
+	spec, err := resolveLang(exec.Language)
+	if err != nil {
+		return RunResult{}, err
+	}
 	pids := int64(sandboxPids)
 	cfg := &container.Config{
-		Image:           r.image,
-		User:            "65534:65534", // nobody
-		WorkingDir:      "/work",
-		Entrypoint:      []string{"/bin/sh", "-c", "tar -x -C /work >/dev/null 2>&1; exec python /work/main.py < /work/stdin.txt"},
+		Image:      r.image,
+		User:       "65534:65534", // nobody
+		WorkingDir: "/work",
+		Entrypoint: []string{"/bin/sh", "-c", "tar -x -C /work >/dev/null 2>&1; " + spec.cmd},
+		// Config.Env replaces the image env, so restate what the runner
+		// image provides and add writable Go caches for the read-only rootfs.
+		Env: []string{
+			"PYTHONUNBUFFERED=1",
+			"PYTHONDONTWRITEBYTECODE=1",
+			"HOME=/tmp",
+			"GOCACHE=/tmp",
+			"GOPATH=/tmp",
+		},
 		AttachStdin:     true,
 		OpenStdin:       true,
 		StdinOnce:       true,
@@ -132,8 +176,10 @@ func (r *dockerRunner) Run(ctx context.Context, exec ClaimedExecution) (RunResul
 		NetworkMode:    container.NetworkMode("none"),
 		ReadonlyRootfs: true,
 		Tmpfs: map[string]string{
-			"/tmp":  fmt.Sprintf("rw,nosuid,nodev,size=%d,uid=65534,gid=65534", sandboxTmpSize),
-			"/work": fmt.Sprintf("rw,nosuid,nodev,size=%d,uid=65534,gid=65534", sandboxTmpSize),
+			// exec is explicit: Docker 29 injects noexec otherwise and
+			// rust/cpp (exec /tmp/main) + go (build cache in /tmp) fail.
+			"/tmp":  fmt.Sprintf("rw,exec,nosuid,nodev,size=%d,uid=65534,gid=65534", sandboxTmpSize),
+			"/work": fmt.Sprintf("rw,exec,nosuid,nodev,size=%d,uid=65534,gid=65534", sandboxTmpSize),
 		},
 		CapDrop: []string{"ALL"},
 		Runtime: r.runtime,
@@ -170,7 +216,7 @@ func (r *dockerRunner) Run(ctx context.Context, exec ClaimedExecution) (RunResul
 	if err := r.cli.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
 		return RunResult{}, fmt.Errorf("%w: start container: %w", errNotStarted, err)
 	}
-	if _, err := hij.Conn.Write(workArchive(exec.Source, exec.Stdin)); err != nil {
+	if _, err := hij.Conn.Write(workArchive(exec.Source, exec.Stdin, spec.file)); err != nil {
 		return RunResult{}, fmt.Errorf("send work archive: %w", err)
 	}
 	_ = hij.CloseWrite()
@@ -196,13 +242,13 @@ func (r *dockerRunner) Run(ctx context.Context, exec ClaimedExecution) (RunResul
 	return res, nil
 }
 
-// workArchive builds a tar containing main.py and stdin.txt for the sandbox
-// entrypoint to extract into /work.
-func workArchive(source, stdin string) []byte {
+// workArchive builds a tar containing the language's source file and
+// stdin.txt for the sandbox entrypoint to extract into /work.
+func workArchive(source, stdin, filename string) []byte {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 	for name, content := range map[string]string{
-		"main.py":   source,
+		filename:    source,
 		"stdin.txt": stdin,
 	} {
 		_ = tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(content))})
