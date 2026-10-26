@@ -37,7 +37,7 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.DatabaseURL == "" || cfg.NATSURL == "" {
 		t.Fatal("expected default DATABASE_URL and NATS_URL")
 	}
-	if cfg.ExecWorkers != 2 || cfg.RunnerImage == "" || cfg.RunnerRuntime != "runsc" {
+	if cfg.ExecWorkers != 2 || cfg.RunnerImage != "runnix-runner:local" || cfg.RunnerRuntime != "runsc" {
 		t.Fatalf("dispatcher defaults = %+v", cfg)
 	}
 	if cfg.ReapInterval != time.Minute || cfg.ReapStaleAfter != 5*time.Minute {
@@ -54,13 +54,13 @@ func TestLoadDefaults(t *testing.T) {
 func TestLoadDispatcherEnv(t *testing.T) {
 	devEnv(t)
 	t.Setenv("EXEC_WORKERS", "4")
-	t.Setenv("RUNNER_IMAGE", "python:3.12-slim")
+	t.Setenv("RUNNER_IMAGE", "runnix-runner:test")
 	t.Setenv("RUNNER_RUNTIME", "runc")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load() = %v", err)
 	}
-	if cfg.ExecWorkers != 4 || cfg.RunnerImage != "python:3.12-slim" || cfg.RunnerRuntime != "runc" {
+	if cfg.ExecWorkers != 4 || cfg.RunnerImage != "runnix-runner:test" || cfg.RunnerRuntime != "runc" {
 		t.Fatalf("dispatcher config = %+v", cfg)
 	}
 }

@@ -39,7 +39,7 @@ jobs:
             context: .
             dockerfile: ./Dockerfile.dispatcher
             platforms: linux/amd64,linux/arm64
-          - image: ghcr.io/ishaan-jindal/runnix-runner-python
+          - image: ghcr.io/ishaan-jindal/runnix-runner
             context: ./runner/docker
             dockerfile: ./runner/docker/Dockerfile
             # The sandbox image executes on the x86_64 host under runsc,

@@ -45,7 +45,7 @@ func Load() (Config, error) {
 		// JWT_SECRET requirement. An unset ENV must fail closed rather
 		// than silently run tenant routes unauthenticated.
 		ExecWorkers:      2,
-		RunnerImage:      "runnix-runner-python:local",
+		RunnerImage:      "runnix-runner:local",
 		RunnerRuntime:    "runsc",
 		ReapInterval:     time.Minute,
 		ReapStaleAfter:   5 * time.Minute,

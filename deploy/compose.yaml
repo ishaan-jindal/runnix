@@ -35,9 +35,9 @@ services:
       postgres: { condition: service_healthy }
       nats: { condition: service_started }
 
-  # Build-only: tags the sandbox runner image the dispatcher uses.
-  runner-python:
-    image: runnix-runner-python:local
+  # Build-only: tags the polyglot sandbox runner image the dispatcher uses.
+  runner:
+    image: runnix-runner:local
     build:
       context: ../runner/docker
     restart: "no"
@@ -51,7 +51,7 @@ services:
       DATABASE_URL: postgres://runnix:runnix@postgres:5432/runnix?sslmode=disable
       NATS_URL: nats://nats:4222
       EXEC_WORKERS: "2"
-      RUNNER_IMAGE: runnix-runner-python:local
+      RUNNER_IMAGE: runnix-runner:local
       RUNNER_RUNTIME: runsc
       WEBHOOK_SIGNING_SECRET: dev-webhook-signing-secret
       WEBHOOK_ALLOW_PRIVATE: "true"
