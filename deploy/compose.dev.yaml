@@ -59,7 +59,7 @@ services:
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       EXEC_WORKERS: "1"
-      RUNNER_IMAGE: ghcr.io/ishaan-jindal/runnix-runner-python:${IMAGE_TAG:-edge}
+      RUNNER_IMAGE: ghcr.io/ishaan-jindal/runnix-runner:${IMAGE_TAG:-edge}
       RUNNER_RUNTIME: runsc
       WEBHOOK_SIGNING_SECRET: ${WEBHOOK_SIGNING_SECRET:?WEBHOOK_SIGNING_SECRET is required}
       REAP_INTERVAL: 1m

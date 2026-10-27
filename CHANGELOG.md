@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Polyglot executions: `POST /executions` now accepts `python`, `javascript`,
+  `go`, `java`, `ruby`, `rust`, and `cpp` (see `GET /languages`). All seven
+  run in one `runnix-runner` sandbox image (renamed from
+  `runnix-runner-python`); the dispatcher picks the source filename and
+  toolchain per language. Sandbox is now 192 MB RAM (+192 MB swap) with
+  exec-enabled tmpfs so compiled languages can build and run.
+
 ## [0.1.2] - 2026-10-24
 
 ### Added

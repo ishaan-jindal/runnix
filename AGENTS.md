@@ -60,7 +60,7 @@ vet/test/build gate first.
 ## Gotchas
 
 - Dispatcher needs the Docker socket + `RUNNER_RUNTIME=runsc` locally; the
-  sandbox image must exist (`compose-up` builds it via the `runner-python`
+  sandbox image must exist (`compose-up` builds it via the `runner`
   service).
 - Work files enter the sandbox as a tar over the container's stdin — no bind
   mounts (they don't resolve through a mounted socket), `CopyToContainer`

@@ -197,7 +197,7 @@ func TestHandlePoisonMessages(t *testing.T) {
 	for name, raw := range map[string]string{
 		"bad json":     "{not json",
 		"empty id":     `{"execution_id":"","language":"python"}`,
-		"bad language": `{"execution_id":"` + testExecID + `","language":"ruby"}`,
+		"bad language": `{"execution_id":"` + testExecID + `","language":"haskell"}`,
 		"bad uuid":     `{"execution_id":"nope","language":"python"}`,
 		"no language":  `{"execution_id":"` + testExecID + `"}`,
 	} {

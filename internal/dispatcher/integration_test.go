@@ -36,7 +36,7 @@ import (
 // intImageTag is the local build of runner/docker/Dockerfile used by sandbox
 // tests so they track the real runner instead of drifting on raw upstream.
 // Override with RUNNER_IMAGE to reuse a prebuilt image (e.g. in CI).
-const intImageTag = "runnix-runner-python:test"
+const intImageTag = "runnix-runner:test"
 
 // skipNoDocker fails in CI so daemon/pull outages are visible, but skips
 // locally so unit runs stay green without Docker.

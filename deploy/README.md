@@ -5,7 +5,7 @@ three compose projects (`runnix-caddy`, `runnix-prod`, `runnix-dev`) on the
 external network `runnix-public`. Caddy terminates TLS automatically for
 `api.runnix.xyz` (prod) and `dev.runnix.xyz` (dev) and proxies to the two
 app stacks. Images come from GHCR as
-`ghcr.io/ishaan-jindal/runnix-{gateway,dispatcher,runner-python}`, tagged
+`ghcr.io/ishaan-jindal/runnix-{gateway,dispatcher,runner}`, tagged
 with the version plus `latest` on releases and `edge` on main.
 
 File map (hosted files are owned by sibling work; local file stays as is):
