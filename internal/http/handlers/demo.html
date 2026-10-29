@@ -5,128 +5,177 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Runnix — API Demo Console</title>
 <style>
-:root{--bg:#0b0e14;--panel:#131824;--panel2:#0f1420;--line:#232c40;--txt:#dbe4f3;--dim:#8b96ad;--acc:#7dd3fc;--grn:#4ade80;--amb:#fbbf24;--red:#f87171;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--mono);font-size:13px;line-height:1.45}
-header{border-bottom:1px solid var(--line);padding:14px 18px;display:flex;gap:14px;align-items:baseline;flex-wrap:wrap;background:#0d1119;position:sticky;top:0;z-index:5}
-header h1{font-size:15px;margin:0;letter-spacing:.08em}header h1 b{color:var(--acc)}header .sub{color:var(--dim);font-size:12px}
-main{max-width:1080px;margin:0 auto;padding:16px 14px 60px}
-details{background:var(--panel);border:1px solid var(--line);border-radius:10px;margin:0 0 12px;overflow:hidden}
-summary{cursor:pointer;padding:10px 14px;font-weight:700;letter-spacing:.04em;list-style:none;display:flex;gap:8px;align-items:center}
-summary::-webkit-details-marker{display:none}summary::before{content:"▸";color:var(--acc)}details[open] summary::before{content:"▾"}
-summary .tag{margin-left:auto;font-weight:400;font-size:11px;color:var(--dim)}
-.body{padding:0 14px 14px;border-top:1px solid var(--line)}
-.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
-input,select,textarea{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:7px;padding:8px 10px;font-family:var(--mono);font-size:12.5px}
-input:focus,select:focus,textarea:focus{outline:1px solid var(--acc);border-color:var(--acc)}
+:root{
+  --bg:#eef1f6; --panel:#ffffff; --panel2:#f6f8fb; --line:#d3dce7; --line2:#aebdd1;
+  --txt:#101f33; --dim:#33475f; --faint:#5b6f86;
+  --acc:#175cd3; --acc-dark:#1849a9; --acc-soft:#e8effd;
+  --grn:#067647; --grn-bg:#ecfdf3; --grn-line:#6fce97;
+  --amb:#93370d; --amb-bg:#fffaeb; --amb-line:#eaaa08;
+  --red:#b42318; --red-bg:#fef3f2; --red-line:#f04438;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,Helvetica,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+header{border-bottom:1px solid var(--line);padding:10px 20px;display:flex;gap:12px;align-items:center;background:#fff;position:sticky;top:0;z-index:5}
+header h1{font-size:15px;margin:0;letter-spacing:.08em;font-family:var(--mono);font-weight:700}
+header h1 b{color:var(--acc)}
+header #basePill{margin-left:auto}
+/* two-pane shell */
+.shell{max-width:1280px;margin:0 auto;padding:16px;display:flex;gap:16px;align-items:flex-start}
+.pane-left{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:12px}
+.pane-right{flex:0 0 430px;width:430px;position:sticky;top:62px;max-height:calc(100vh - 78px);display:flex;min-width:0}
+/* sections */
+details{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin:0;overflow:hidden}
+details[open]{border-color:var(--line2)}
+summary{cursor:pointer;padding:13px 16px;list-style:none;display:flex;gap:10px;align-items:center;user-select:none}
+summary::-webkit-details-marker{display:none}
+summary:hover{background:#f1f5fb}
+.step{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;border-radius:7px;background:var(--acc-soft);border:1px solid var(--acc);color:var(--acc-dark);font-size:12px;font-weight:700;font-family:var(--mono);padding:0 6px}
+summary .ttl{font-weight:650;font-size:14px;letter-spacing:.01em;color:var(--txt)}
+summary .tag{margin-left:auto;font-weight:400;font-size:11.5px;color:var(--faint);font-family:var(--mono);text-align:right}
+.body{padding:2px 16px 16px;border-top:1px solid var(--line)}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;align-items:flex-end}
+.subhead{margin:14px 0 0;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+.subhead:first-child{margin-top:10px}
+input,select,textarea{background:#fff;border:1px solid var(--line2);color:var(--txt);border-radius:8px;padding:9px 11px;font-family:var(--mono);font-size:13px}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-offset:0;border-color:var(--acc)}
+input::placeholder{color:var(--faint)}
 input[type=text],input[type=password],input[type=email],input[type=url],input[type=number]{min-width:0}
-button{background:#1d2740;border:1px solid #31405f;color:var(--txt);border-radius:7px;padding:8px 12px;font-family:var(--mono);font-size:12.5px;cursor:pointer}
-button:hover{border-color:var(--acc);color:#fff}button.primary{background:#0e3a4d;border-color:var(--acc);color:#e0f7ff}button.danger{border-color:#5f2b2b;color:#fecaca}button.ghost{background:transparent}
-textarea{width:100%;min-height:90px;resize:vertical}label{color:var(--dim);font-size:11.5px;display:flex;flex-direction:column;gap:4px}
-label>span{letter-spacing:.03em}.grow{flex:1;min-width:160px}.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;border:1px solid var(--line);color:var(--dim)}
-.pill.ok{color:var(--grn);border-color:#1d4d2e}.pill.err{color:var(--red);border-color:#5f2b2b}.pill.warn{color:var(--amb);border-color:#5a4413}
-.hint{color:var(--dim);font-size:11.5px}.warnbox{border:1px solid #5a4413;background:#221a08;color:#fde68a;border-radius:7px;padding:8px 10px;font-size:12px;margin-top:10px}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-@media(max-width:760px){.grid2{grid-template-columns:1fr}}
-#authbar{position:sticky;top:53px;z-index:4;background:#0d1119e8;backdrop-filter:blur(4px);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px}
-#console{background:#070a10;border:1px solid var(--line);border-radius:10px;overflow:hidden}
-#console .chead{display:flex;gap:8px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line)}
-#entries{display:flex;flex-direction:column;gap:8px;padding:12px;max-height:560px;overflow:auto}
-.entry{border:1px solid var(--line);border-radius:8px;background:var(--panel2);overflow:hidden}
-.entry .meta{display:flex;gap:8px;align-items:center;padding:7px 10px;border-bottom:1px solid var(--line);font-size:12px;flex-wrap:wrap}
-.st{font-weight:700;padding:0 7px;border-radius:6px}.s2{color:var(--grn)}.s4{color:var(--amb)}.s5{color:var(--red)}.s0{color:var(--dim)}
-.entry pre{margin:0;padding:10px;overflow:auto;max-height:300px;font-size:12px;white-space:pre-wrap;word-break:break-word}
-.entry .rid{color:var(--dim);font-size:11px}.copybtn{margin-left:auto;font-size:11px;padding:4px 8px}
-code.k{color:var(--acc)}
+button{background:#fff;border:1px solid var(--line2);color:var(--txt);border-radius:8px;padding:9px 14px;font-family:var(--sans);font-size:13px;font-weight:600;cursor:pointer;transition:border-color .12s,color .12s,background .12s}
+button:hover:not(:disabled){border-color:var(--acc);color:var(--acc-dark)}
+button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+button:disabled{opacity:.55;cursor:wait}
+button.loading{cursor:wait}
+button.loading::after{content:" …"}
+button.primary{background:var(--acc);border-color:var(--acc-dark);color:#fff}
+button.primary:hover:not(:disabled){background:var(--acc-dark);color:#fff}
+button.danger{border-color:var(--red-line);color:var(--red);background:var(--red-bg)}
+button.danger:hover:not(:disabled){border-color:var(--red);color:var(--red)}
+button.ghost{background:transparent}
+textarea{width:100%;min-height:96px;resize:vertical;line-height:1.5}
+label{color:var(--dim);font-size:12px;display:flex;flex-direction:column;gap:5px;font-family:var(--sans);font-weight:600}
+label>span{letter-spacing:.02em}
+.grow{flex:1;min-width:170px}
+.pill{display:inline-flex;align-items:center;gap:5px;padding:2px 10px;border-radius:99px;font-size:11.5px;border:1px solid var(--line2);color:var(--dim);background:#f2f4f7;font-family:var(--mono);white-space:nowrap}
+.pill.ok{color:var(--grn);border-color:var(--grn-line);background:var(--grn-bg)}
+.pill.err{color:var(--red);border-color:var(--red-line);background:var(--red-bg)}
+.pill.warn{color:var(--amb);border-color:var(--amb-line);background:var(--amb-bg)}
+.hint{color:var(--dim);font-size:12px}
+.hint code,.body code{font-family:var(--mono);color:var(--acc-dark);font-size:.92em}
+code.k{font-family:var(--mono);color:var(--acc-dark)}
+.warnbox{border:1px solid var(--amb-line);background:var(--amb-bg);color:var(--amb);border-radius:8px;padding:9px 12px;font-size:12.5px;margin-top:12px}
+.checkline{flex-direction:row !important;align-items:center;gap:8px !important;color:var(--txt);font-size:13px;cursor:pointer}
+/* credential bar at top of left pane */
+#authbar{background:var(--panel);border:1px solid var(--line2);border-radius:12px;padding:12px 14px}
+#authbar .row{margin-top:10px}#authbar .row:first-child{margin-top:0}
+/* console: sticky full-height right column with its own scroll */
+#console{background:var(--panel);border:1px solid var(--line2);border-radius:12px;overflow:hidden;flex:1;display:flex;flex-direction:column;min-height:240px;max-height:calc(100vh - 78px);min-width:0}
+#console .chead{display:flex;gap:10px;align-items:center;padding:11px 16px;border-bottom:1px solid var(--line);flex-shrink:0}
+#console .chead b{font-size:13.5px;letter-spacing:.03em}
+#entries{display:flex;flex-direction:column;gap:10px;padding:14px;flex:1;overflow:auto;background:var(--panel2)}
+.entry{border:1px solid var(--line);border-radius:9px;background:#fff;overflow:hidden}
+.entry .meta{display:flex;gap:8px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);font-size:12.5px;flex-wrap:wrap;font-family:var(--mono);color:var(--txt)}
+.st{font-weight:700;padding:1px 8px;border-radius:6px;background:#eef2f7;color:var(--txt)}
+.s2{color:var(--grn)}.s4{color:var(--amb)}.s5{color:var(--red)}.s0{color:var(--faint)}
+.entry .time{color:var(--faint);font-size:11px;margin-left:auto}
+.entry pre{margin:0;padding:11px 12px;overflow:auto;max-height:320px;font-size:12.5px;line-height:1.5;white-space:pre-wrap;word-break:break-word;font-family:var(--mono);color:var(--txt)}
+.entry .rid{color:var(--faint);font-size:11px;font-family:var(--mono)}
+.copybtn{margin-left:0;font-size:11.5px;padding:4px 10px;font-weight:500}
+.empty{color:var(--faint);text-align:center;padding:26px 10px;font-size:13px}
+@media(max-width:900px){.shell{flex-direction:column}.pane-right{width:100%;flex:auto;position:static;max-height:none}#console{max-height:none}#entries{max-height:480px}}
+@media(prefers-reduced-motion:reduce){*{transition:none !important}}
 </style>
 </head>
 <body>
 <header>
 <h1><b>RUNNIX</b> / demo console</h1>
-<span class="sub">instrument, not marketing — all calls same-origin via <code class="k">fetch()</code> + relative paths</span>
 <span class="pill" id="basePill" title="Base URL">origin: …</span>
 </header>
-<main>
+<main class="shell">
+<div class="pane pane-left">
 
-<div id="authbar">
-<div class="row" style="margin-top:0">
-<label class="grow"><span>Authorization Bearer token (shared)</span><input id="token" type="text" placeholder="(empty — log in below)" autocomplete="off" spellcheck="false"></label>
-<label style="min-width:220px;flex:1"><span>X-Tenant-ID (shared)</span><input id="tenant" type="text" placeholder="(empty — log in or create tenant)" autocomplete="off" spellcheck="false"></label>
+<div id="authbar" aria-label="Shared credentials">
+<div class="row">
+<label class="grow"><span>Authorization Bearer token (shared)</span><input id="token" type="text" placeholder="(empty — register or log in below)" autocomplete="off" spellcheck="false"></label>
+<label style="min-width:230px;flex:1"><span>X-Tenant-ID (shared)</span><input id="tenant" type="text" placeholder="(empty — log in or create a tenant)" autocomplete="off" spellcheck="false"></label>
 </div>
-<div class="row"><span class="pill" id="tokState">no token</span><span class="pill" id="tenState">no tenant</span>
-<span class="hint">Every tenant-route call sends both headers. Reads 404 = wrong tenant. 401 = bad/missing token.</span></div>
+<div class="row"><span class="pill" id="tokState">no token</span><span class="pill" id="tenState">no tenant</span><span class="pill" id="refState">no refresh token</span>
+<span class="hint">Tenant routes need both headers. Reads 404 = wrong tenant. 401 = bad token.</span></div>
 </div>
 
 <details open>
-<summary>1 · Connection <span class="tag">GET /healthz · /readyz · /languages</span></summary>
+<summary><span class="step">1</span><span class="ttl">Connection</span><span class="tag">GET /healthz · /readyz · /languages</span></summary>
 <div class="body">
 <div class="row">
 <button data-conn="GET /healthz">GET /healthz</button>
 <button data-conn="GET /readyz">GET /readyz</button>
 <button data-conn="GET /languages">GET /languages</button>
-<span class="hint">Base = <code class="k" id="baseUrl">location.origin</code> · each response echoes <code class="k">X-Request-ID</code> into the console.</span>
+<span class="hint">Base = <code id="baseUrl">location.origin</code> · every response echoes <code>X-Request-ID</code> into the console.</span>
 </div>
 </div>
 </details>
 
 <details open>
-<summary>2 · Auth <span class="tag">POST /auth/* · GET /users/me</span></summary>
+<summary><span class="step">2</span><span class="ttl">Auth</span><span class="tag">POST /auth/* · GET /users/me</span></summary>
 <div class="body">
-<div class="grid2">
-<div>
-<div class="row"><b>Register</b><span class="hint">→ 201 + token + first tenant auto-saved</span></div>
-<div class="row"><label class="grow"><span>username</span><input id="r_user" type="text" value="demo"></label>
+<p class="subhead">Register — 201 + token pair, first tenant auto-saved</p>
+<div class="row"><label class="grow"><span>username (3+ chars)</span><input id="r_user" type="text" value="demo"></label>
 <label class="grow"><span>email</span><input id="r_email" type="email" value="demo@example.com"></label></div>
-<div class="row"><label class="grow"><span>password</span><input id="r_pass" type="password" value="password123"></label>
+<div class="row"><label class="grow"><span>password (8+ chars)</span><input id="r_pass" type="password" value="password123"></label>
 <button class="primary" id="btnRegister">POST /auth/register</button></div>
-</div>
-<div>
-<div class="row"><b>Login</b><span class="hint">→ username or email + password</span></div>
+<p class="subhead">Login — one field takes username or email</p>
 <div class="row"><label class="grow"><span>username or email</span><input id="l_user" type="text" value="demo"></label>
 <label class="grow"><span>password</span><input id="l_pass" type="password" value="password123"></label></div>
 <div class="row"><button class="primary" id="btnLogin">POST /auth/login</button>
-<button id="btnMe">GET /users/me</button>
-<button class="danger" id="btnLogout">POST /auth/logout</button></div>
-</div>
-</div>
-<div class="row"><span class="hint">Stored: <code class="k" id="tokShow">—</code> · tenant <code class="k" id="tenShow">—</code></span></div>
+<button id="btnMe">GET /users/me</button></div>
+<p class="subhead">Session — rotate, then revoke</p>
+<div class="row"><button id="btnRefresh">POST /auth/refresh</button>
+<button class="danger" id="btnLogout">POST /auth/logout</button>
+<button class="danger" id="btnLogoutAll">POST /auth/logout-all</button>
+<span class="hint">Refresh uses the stored refresh token and saves the rotated pair. Logout-all needs only the JWT.</span></div>
+<div class="row"><span class="hint">Stored: access <code id="tokShow">—</code> · tenant <code id="tenShow">—</code> · refresh <code id="refShow">—</code></span></div>
 </div>
 </details>
 
 <details open>
-<summary>3 · Executions <span class="tag">POST · GET · list — 202 → poll to terminal</span></summary>
+<summary><span class="step">3</span><span class="ttl">Executions</span><span class="tag">POST · GET · list — 202 → poll to terminal</span></summary>
 <div class="body">
 <div class="row">
 <label><span>language</span><select id="ex_lang"><option>python</option></select></label>
-<label><span>timeout_s (1–60, default 2)</span><input id="ex_timeout" type="number" min="1" max="60" value="2" style="width:90px"></label>
-<label class="grow"><span>stdin (optional)</span><input id="ex_stdin" type="text" placeholder=""></label>
+<label><span>timeout_s (1–60)</span><input id="ex_timeout" type="number" min="1" max="60" value="2" style="width:90px"></label>
+<label class="grow"><span>stdin (optional)</span><input id="ex_stdin" type="text" placeholder="piped to the program"></label>
+<span class="pill" id="pollState">idle</span>
 </div>
-<div class="row"><label class="grow"><span>webhook_url (optional)</span><input id="ex_hook" type="url" placeholder="https://… (optional)"></label></div>
+<div class="row"><label class="grow"><span>webhook_url (optional)</span><input id="ex_hook" type="url" placeholder="https://… — must be public http(s)"></label></div>
 <div class="row"><label class="grow"><span>source</span><textarea id="ex_src">print(40+2)</textarea></label></div>
 <div class="row">
 <button class="primary" id="btnRun">POST /executions → 202</button>
-<button id="btnPoll">GET /executions/{id} (poll)</button>
-<label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="autopoll" checked> auto-poll 2s to terminal</label>
-<button id="btnList">GET /executions?limit=</button>
-<input id="list_limit" type="number" min="1" max="100" value="10" style="width:70px">
+<button id="btnPoll">GET /executions/{id} (poll once)</button>
+<label class="checkline"><input type="checkbox" id="autopoll" checked> auto-poll every 2s to terminal</label>
+<button id="btnList">GET /executions</button>
+<label><span>limit</span><input id="list_limit" type="number" min="1" max="100" value="10" style="width:70px"></label>
 </div>
-<div class="row"><span class="hint">Over quota → <code class="k">429 + Retry-After</code>. Terminal = anything but queued/running/pending.</span></div>
+<div class="row"><span class="hint">Terminal = <code>succeeded</code> · <code>failed</code> · <code>timeout</code>. Over quota → <code>429 + Retry-After</code>.</span></div>
 </div>
 </details>
 
 <details>
-<summary>4 · Tenants <span class="tag">POST /tenants · GET /tenants/{id}</span></summary>
+<summary><span class="step">4</span><span class="ttl">Tenants</span><span class="tag">POST /tenants · GET /tenants/{id}</span></summary>
 <div class="body">
 <div class="row">
-<button class="primary" id="btnTenantCreate">POST /tenants {} → owner</button>
+<label class="grow"><span>name (3–60 chars)</span><input id="t_name" type="text" value="demo-org"></label>
+<button class="primary" id="btnTenantCreate">POST /tenants → owner</button></div>
+<div class="row">
 <button id="btnTenantGet">GET /tenants/{id}</button>
 <label class="grow"><span>tenant id (defaults to shared bar)</span><input id="tenant_id2" type="text" placeholder="uses X-Tenant-ID if empty"></label>
 </div>
-<div class="row"><span class="hint">Path id must equal <code class="k">X-Tenant-ID</code> on reads, otherwise expect 403/404.</span></div>
+<div class="row"><span class="hint">New tenant id auto-fills the shared bar. Path id must equal <code>X-Tenant-ID</code>, else 403/404.</span></div>
 </div>
 </details>
 
 <details>
-<summary>5 · API keys <span class="tag">mint shows secret ONCE</span></summary>
+<summary><span class="step">5</span><span class="ttl">API keys</span><span class="tag">mint shows secret ONCE</span></summary>
 <div class="body">
 <div class="warnbox">Mint returns <code>{id, name, key}</code> — the full secret is shown <b>once</b>. Copy it now; list only returns metadata.</div>
 <div class="row">
@@ -141,55 +190,94 @@ code.k{color:var(--acc)}
 </div>
 </details>
 
-<div id="console">
+</div>
+<div class="pane pane-right">
+
+<div id="console" aria-live="polite">
 <div class="chead"><b>Console</b><span class="hint">newest first · METHOD path → status + JSON</span>
+<span class="pill" id="entryCount">0 entries</span>
 <button class="ghost" id="btnClear" style="margin-left:auto">clear</button></div>
-<div id="entries"></div>
+<div id="entries"><div class="empty">No calls yet — start with step 1 above.</div></div>
 </div>
 
+</div>
 </main>
 <script>
 (function(){
 "use strict";
 var FALLBACK_LANGS=["python","javascript","go","java","ruby","rust","cpp"];
-var TERMINAL_OFF=["queued","running","pending","accepted"];
+var TERMINAL=["succeeded","failed","timeout"];
+var INFLIGHT=["queued","running","pending","accepted"];
+var MAX_POLLS=45;
 var $=function(id){return document.getElementById(id)};
-var entries=$("entries"), pollTimer=null, lastExecId=null;
+var entries=$("entries"), pollTimer=null, pollCount=0, lastExecId=null;
 $("baseUrl").textContent=location.origin;
 $("basePill").textContent="origin: "+location.origin;
 
 function trunc(t){return t&&t.length>18?t.slice(0,12)+"…"+t.slice(-4):t||"—"}
+function hasRefresh(){try{return !!sessionStorage.getItem("runnix_refresh")}catch(e){return false}}
 function refreshBar(){
 var t=$("token").value.trim(), n=$("tenant").value.trim();
 $("tokState").textContent=t?"token ✓":"no token";
 $("tokState").className="pill "+(t?"ok":"");
 $("tenState").textContent=n?"tenant ✓":"no tenant";
 $("tenState").className="pill "+(n?"ok":"");
+$("refState").textContent=hasRefresh()?"refresh ✓":"no refresh";
+$("refState").className="pill "+(hasRefresh()?"ok":"");
 $("tokShow").textContent=trunc(t);$("tenShow").textContent=n||"—";
+$("refShow").textContent=hasRefresh()?"stored":"—";
 }
 ["token","tenant"].forEach(function(id){$(id).addEventListener("input",refreshBar)});
 refreshBar();
 
+function updateCount(){
+var n=entries.querySelectorAll(".entry").length;
+$("entryCount").textContent=n+(n===1?" entry":" entries");
+}
 function log(method,path,status,body,rid,extra){
+var empty=document.querySelector("#entries .empty");if(empty)empty.remove();
 var d=document.createElement("div");d.className="entry";
 var cls=status===0?"s0":status<300?"s2":status<500?"s4":"s5";
 var txt="";try{txt=JSON.stringify(body,null,2)}catch(e){txt=String(body)}
 if(txt==null||txt==="")txt="(empty body)";
-var hdr=method+" "+path+' <span class="st '+cls+'">'+status+"</span>";
-if(extra)hdr+=' <span class="pill warn">'+extra+"</span>";
-d.innerHTML='<div class="meta"><span>'+hdr+'</span><button class="copybtn">copy</button></div>'
-+'<div class="meta"><span class="rid">x-request-id: '+(rid||"—")+"</span></div>"
-+"<pre></pre>";
-d.querySelector("pre").textContent=txt;
-d.querySelector(".copybtn").onclick=function(){var t=method+" "+path+" -> "+status+"\n"+txt;
-if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(function(){})}else{var ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand("copy")}catch(e){}ta.remove()}};
+var hdr=document.createElement("div");hdr.className="meta";
+var left=document.createElement("span");left.textContent=method+" "+path+" ";
+var st=document.createElement("span");st.className="st "+cls;st.textContent=String(status);
+left.appendChild(st);hdr.appendChild(left);
+if(extra){var x=document.createElement("span");x.className="pill warn";x.textContent=extra;hdr.appendChild(x)}
+var cb=document.createElement("button");cb.className="copybtn ghost";cb.textContent="copy";
+cb.onclick=function(){var t=method+" "+path+" -> "+status+"\n"+txt;
+if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).catch(function(){})}else{var ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand("copy")}catch(e){}ta.remove()}};
+hdr.appendChild(cb);
+var tm=document.createElement("span");tm.className="time";tm.textContent=new Date().toLocaleTimeString();
+hdr.appendChild(tm);
+var rm=document.createElement("div");rm.className="meta";
+var rs=document.createElement("span");rs.className="rid";rs.textContent="x-request-id: "+(rid||"—");
+rm.appendChild(rs);
+var pre=document.createElement("pre");pre.textContent=txt;
+d.appendChild(hdr);d.appendChild(rm);d.appendChild(pre);
 entries.prepend(d);
 while(entries.children.length>60)entries.lastChild.remove();
+updateCount();
 }
-$("btnClear").onclick=function(){entries.innerHTML=""};
+$("btnClear").onclick=function(){entries.innerHTML='<div class="empty">No calls yet — start with step 1 above.</div>';updateCount()};
 
-function needToken(){var t=$("token").value.trim();if(!t){log("—","auth","0",{hint:"empty token — register or log in first (section 2)"},"—","log in first");return null}return t}
+function needToken(){var t=$("token").value.trim();if(!t){log("—","auth","0",{hint:"empty token — register or log in first (step 2)"},"—","log in first");return null}return t}
 function tenantId(override){return (override||$("tenant").value||"").trim()}
+function needTenant(path){var t=tenantId();if(!t){log("—",path,"0",{hint:"empty X-Tenant-ID — set it in the shared bar"},"—","tenant missing");return null}return t}
+
+/* Per-status guidance for the demo room. */
+function hintFor(status,hadRetryAfter){
+if(status===401)return "401: bad or expired token — log in again, or refresh";
+if(status===403)return "403: not a member — X-Tenant-ID must match the path id";
+if(status===404)return "404: unknown id, or hidden by tenant scope";
+if(status===409)return "409: already exists — pick another name";
+if(status===429)return hadRetryAfter?"429: over quota — wait, then retry":"429: over quota";
+if(status===501)return "501: auth unavailable — this backend has no database";
+if(status===502)return "502: submit queue unavailable (NATS down) — execution marked failed";
+if(status===503)return "503: dependency unavailable — check /readyz (tenant routes need a database)";
+return null;
+}
 
 async function call(method,path,opts){
 opts=opts||{};
@@ -199,20 +287,17 @@ if(opts.auth&&t)headers["Authorization"]="Bearer "+t;
 if(opts.tenant)headers["X-Tenant-ID"]=opts.tenant;
 var init={method:method,headers:headers};
 if(opts.body!==undefined)init.body=JSON.stringify(opts.body);
-var status=0,body=null,rid="—";
+var status=0,body=null,rid="—",retryAfter=null;
 try{
 var res=await fetch(path,init);
 status=res.status;rid=res.headers.get("x-request-id")||res.headers.get("X-Request-ID")||"—";
-if(status===429){var ra=res.headers.get("retry-after");if(ra)opts.note="retry-after "+ra+"s"}
+if(status===429){var ra=res.headers.get("retry-after");if(ra)retryAfter=ra}
 var ct=res.headers.get("content-type")||"";
 body=ct.indexOf("json")>=0?await res.json().catch(function(){return "(unparseable json)"}):await res.text();
-}catch(e){body={error:"network error",detail:String(e&&e.message||e)}}
-if(status===401)opts.note="401: bad/expired token — log in again";
-else if(status===403)opts.note="403: not a member / tenant mismatch";
-else if(status===404)opts.note="404: wrong id or cross-tenant (hidden)";
-else if(status===501)opts.note="501: auth unavailable (no database)";
-else if(status===502||status===503)opts.note=status+": backend not ready — try /readyz";
-log(method,path,status,body,rid,opts.note||null);
+}catch(e){body={error:"network error",detail:String((e&&e.message)||e)}}
+var note=hintFor(status,!!retryAfter);
+if(status===429&&retryAfter)note+=" — retry-after "+retryAfter+"s";
+log(method,path,status,body,rid,note);
 return {status:status,body:body};
 }
 function saveAuth(body){
@@ -224,9 +309,22 @@ if(ten){$("tenant").value=ten}
 refreshBar();
 }
 
+/* Disable a button while its request is in flight so double-clicks can't double-fire. */
+function busy(btn,fn){
+return async function(){
+if(btn.disabled)return;
+btn.disabled=true;btn.classList.add("loading");btn.setAttribute("aria-busy","true");
+try{await fn()}finally{btn.disabled=false;btn.classList.remove("loading");btn.removeAttribute("aria-busy")}
+};
+}
+function wire(id,fn){var b=$(id);b.onclick=busy(b,fn)}
+
 document.querySelectorAll("[data-conn]").forEach(function(b){
-b.onclick=function(){var p=b.getAttribute("data-conn").split(" ");call(p[0],p[1],{}).then(function(r){
-if(p[1]==="/languages"&&r.body&&Array.isArray(r.body.languages))fillLangs(r.body.languages)})};
+b.onclick=busy(b,async function(){
+var p=b.getAttribute("data-conn").split(" ");
+var r=await call(p[0],p[1],{});
+if(p[1]==="/languages"&&r.body&&Array.isArray(r.body.languages)&&r.body.languages.length)fillLangs(r.body.languages);
+});
 });
 function fillLangs(list){
 var s=$("ex_lang"),cur=s.value;s.innerHTML="";
@@ -236,22 +334,39 @@ if(list.indexOf(cur)>=0)s.value=cur;
 fillLangs(FALLBACK_LANGS);
 fetch("/languages").then(function(r){return r.json()}).then(function(b){if(b&&Array.isArray(b.languages)&&b.languages.length)fillLangs(b.languages)}).catch(function(){});
 
-$("btnRegister").onclick=async function(){
+wire("btnRegister",async function(){
 var r=await call("POST","/auth/register",{body:{username:$("r_user").value.trim(),email:$("r_email").value.trim(),password:$("r_pass").value}});
 if(r.status===201)saveAuth(r.body);
-};
-$("btnLogin").onclick=async function(){
-var r=await call("POST","/auth/login",{body:{username:$("l_user").value.trim(),password:$("l_pass").value}});
+});
+wire("btnLogin",async function(){
+var id=$("l_user").value.trim(), pw=$("l_pass").value;
+var b={password:pw};
+if(id.indexOf("@")>=0)b.email=id;else b.username=id;
+var r=await call("POST","/auth/login",{body:b});
 if(r.status===200)saveAuth(r.body);
-};
-$("btnMe").onclick=function(){if(!needToken())return;call("GET","/users/me",{auth:true})};
-$("btnLogout").onclick=async function(){
+});
+wire("btnMe",async function(){if(!needToken())return;await call("GET","/users/me",{auth:true})});
+wire("btnRefresh",async function(){
+var rt=null;try{rt=sessionStorage.getItem("runnix_refresh")}catch(e){}
+if(!rt){log("POST","/auth/refresh","0",{hint:"no stored refresh token — register or log in first"},"—","nothing to refresh");return}
+var r=await call("POST","/auth/refresh",{body:{refreshToken:rt}});
+if(r.status===200)saveAuth(r.body);
+});
+wire("btnLogout",async function(){
 var t=$("token").value.trim();
 var rt=null;try{rt=sessionStorage.getItem("runnix_refresh")}catch(e){}
-var r=await call("POST","/auth/logout",{body:{refreshToken:rt||t}});
-if(r.status===200){$("token").value="";try{sessionStorage.removeItem("runnix_refresh")}catch(e){}refreshBar()}
-};
-// refresh token is stashed by saveAuth() on register/login/refresh.
+await call("POST","/auth/logout",{body:{refreshToken:rt||t||""}});
+if(t){$("token").value=""}
+try{sessionStorage.removeItem("runnix_refresh")}catch(e){}
+refreshBar();
+});
+wire("btnLogoutAll",async function(){
+if(!needToken())return;
+await call("POST","/auth/logout-all",{auth:true});
+$("token").value="";
+try{sessionStorage.removeItem("runnix_refresh")}catch(e){}
+refreshBar();
+});
 
 function execBody(){
 var b={language:$("ex_lang").value,source:$("ex_src").value};
@@ -261,62 +376,78 @@ if($("ex_hook").value.trim())b.webhook_url=$("ex_hook").value.trim();
 var tid=tenantId();if(tid)b.tenant_id=tid;
 return b;
 }
-$("btnRun").onclick=async function(){
-if(!needToken())return;var tid=tenantId();
-if(!tid){log("POST","/executions","0",{hint:"empty X-Tenant-ID — set it in the shared bar"},"—","tenant missing");return}
+function setPoll(state){
+var p=$("pollState");
+p.textContent=state;
+p.className="pill "+(state==="polling…"?"warn":state==="idle"?"":"ok");
+}
+function stopPoll(){if(pollTimer){clearInterval(pollTimer);pollTimer=null}setPoll("idle")}
+function startPoll(){stopPoll();pollCount=0;setPoll("polling…");pollTimer=setInterval(pollOnce,2000)}
+function pollOnce(){
+if(!lastExecId){log("GET","/executions/{id}","0",{hint:"no execution yet — submit one first"},"—","nothing to poll");return Promise.resolve()}
+var tid=tenantId();
+if(!tid){log("GET","/executions/"+lastExecId,"0",{hint:"empty X-Tenant-ID"},"—","tenant missing");stopPoll();return Promise.resolve()}
+pollCount++;
+return call("GET","/executions/"+encodeURIComponent(lastExecId),{auth:true,tenant:tid}).then(function(r){
+var st=r.body&&r.body.status?String(r.body.status).toLowerCase():"";
+if(TERMINAL.indexOf(st)>=0){stopPoll();setPoll(st)}
+else if(INFLIGHT.indexOf(st)<0){stopPoll();setPoll(st||"idle")}
+else if(pollCount>=MAX_POLLS){stopPoll();log("—","poll","0",{hint:"stopped after "+MAX_POLLS+" polls without a terminal state"},"—","poll cap")}
+return r;
+});
+}
+wire("btnRun",async function(){
+if(!needToken())return;
+var tid=needTenant("POST /executions");if(!tid)return;
 stopPoll();
 var r=await call("POST","/executions",{auth:true,tenant:tid,body:execBody()});
 if(r.status===202&&r.body&&(r.body.id||r.body.ID)){lastExecId=r.body.id||r.body.ID;
 if($("autopoll").checked)startPoll()}
-};
-$("btnPoll").onclick=function(){
-if(!needToken())return;if(!lastExecId){log("GET","/executions/{id}","0",{hint:"no execution yet — submit one first"},"—","nothing to poll");return}
-pollOnce();
-};
-function pollOnce(){
-var tid=tenantId();
-if(!tid){log("GET","/executions/"+lastExecId,"0",{hint:"empty X-Tenant-ID"},"—","tenant missing");return Promise.resolve()}
-return call("GET","/executions/"+encodeURIComponent(lastExecId),{auth:true,tenant:tid}).then(function(r){
-var st=r.body&&r.body.status?String(r.body.status).toLowerCase():"";
-if(TERMINAL_OFF.indexOf(st)<0)stopPoll();
-return r;
 });
-}
-function startPoll(){stopPoll();pollTimer=setInterval(pollOnce,2000)}
-function stopPoll(){if(pollTimer){clearInterval(pollTimer);pollTimer=null}}
-$("autopoll").addEventListener("change",function(){if(this.checked&&lastExecId)startPoll();else stopPoll()});
-$("btnList").onclick=function(){
-if(!needToken())return;var tid=tenantId();
-if(!tid){log("GET","/executions","0",{hint:"empty X-Tenant-ID"},"—","tenant missing");return}
-var l=parseInt($("list_limit").value,10)||10;
-call("GET","/executions?limit="+l+"&offset=0",{auth:true,tenant:tid});
-};
-$("btnTenantCreate").onclick=async function(){
+wire("btnPoll",async function(){
 if(!needToken())return;
-var r=await call("POST","/tenants",{auth:true,tenant:$("tenant").value.trim()||undefined,body:{}});
-if(r.status===201&&r.body&&(r.body.id||r.body.tenant&&r.body.tenant.id)){$("tenant").value=r.body.id||r.body.tenant.id;refreshBar()}
-};
-$("btnTenantGet").onclick=function(){
-if(!needToken())return;var id=($("tenant_id2").value||$("tenant").value).trim();
+if(!lastExecId){log("GET","/executions/{id}","0",{hint:"no execution yet — submit one first"},"—","nothing to poll");return}
+stopPoll();
+await pollOnce();
+});
+$("autopoll").addEventListener("change",function(){if(this.checked&&lastExecId)startPoll();else stopPoll()});
+wire("btnList",async function(){
+if(!needToken())return;
+var tid=needTenant("GET /executions");if(!tid)return;
+var l=parseInt($("list_limit").value,10)||10;
+await call("GET","/executions?limit="+l+"&offset=0",{auth:true,tenant:tid});
+});
+wire("btnTenantCreate",async function(){
+if(!needToken())return;
+var name=$("t_name").value.trim();
+if(name.length<3){log("POST","/tenants","0",{hint:"name must be 3-60 characters"},"—","name too short");return}
+var r=await call("POST","/tenants",{auth:true,tenant:$("tenant").value.trim()||undefined,body:{name:name}});
+if(r.status===201&&r.body&&r.body.id){$("tenant").value=r.body.id;refreshBar()}
+});
+wire("btnTenantGet",async function(){
+if(!needToken())return;
+var id=($("tenant_id2").value||$("tenant").value).trim();
 if(!id){log("GET","/tenants/{id}","0",{hint:"no tenant id — set shared X-Tenant-ID or type one here"},"—","tenant missing");return}
-call("GET","/tenants/"+encodeURIComponent(id),{auth:true,tenant:tenantId()});
-};
-$("btnKeyMint").onclick=async function(){
-if(!needToken())return;var id=tenantId();
-if(!id){log("POST","/tenants/{id}/api-keys","0",{hint:"empty X-Tenant-ID"},"—","tenant missing");return}
+await call("GET","/tenants/"+encodeURIComponent(id),{auth:true,tenant:tenantId()});
+});
+wire("btnKeyMint",async function(){
+if(!needToken())return;
+var id=needTenant("POST /tenants/{id}/api-keys");if(!id)return;
 var r=await call("POST","/tenants/"+encodeURIComponent(id)+"/api-keys",{auth:true,tenant:id,body:{name:$("key_name").value.trim()||"demo-key"}});
 if(r.body&&r.body.id)$("key_id").value=r.body.id;
-};
-$("btnKeyList").onclick=function(){
-if(!needToken())return;var id=tenantId();
-if(!id){log("GET","/tenants/{id}/api-keys","0",{hint:"empty X-Tenant-ID"},"—","tenant missing");return}
-call("GET","/tenants/"+encodeURIComponent(id)+"/api-keys",{auth:true,tenant:id});
-};
-$("btnKeyRevoke").onclick=function(){
-if(!needToken())return;var id=tenantId(),kid=$("key_id").value.trim();
+});
+wire("btnKeyList",async function(){
+if(!needToken())return;
+var id=needTenant("GET /tenants/{id}/api-keys");if(!id)return;
+await call("GET","/tenants/"+encodeURIComponent(id)+"/api-keys",{auth:true,tenant:id});
+});
+wire("btnKeyRevoke",async function(){
+if(!needToken())return;
+var id=tenantId(),kid=$("key_id").value.trim();
 if(!id||!kid){log("DELETE","/tenants/{id}/api-keys/{keyId}","0",{hint:"need both tenant id and key id"},"—","missing ids");return}
-call("DELETE","/tenants/"+encodeURIComponent(id)+"/api-keys/"+encodeURIComponent(kid),{auth:true,tenant:id});
-};
+await call("DELETE","/tenants/"+encodeURIComponent(id)+"/api-keys/"+encodeURIComponent(kid),{auth:true,tenant:id});
+});
+updateCount();
 })();
 </script>
 </body>
