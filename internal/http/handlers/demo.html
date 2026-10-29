@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Runnix — API Demo Console</title>
+<style>
+:root{--bg:#0b0e14;--panel:#131824;--panel2:#0f1420;--line:#232c40;--txt:#dbe4f3;--dim:#8b96ad;--acc:#7dd3fc;--grn:#4ade80;--amb:#fbbf24;--red:#f87171;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--mono);font-size:13px;line-height:1.45}
+header{border-bottom:1px solid var(--line);padding:14px 18px;display:flex;gap:14px;align-items:baseline;flex-wrap:wrap;background:#0d1119;position:sticky;top:0;z-index:5}
+header h1{font-size:15px;margin:0;letter-spacing:.08em}header h1 b{color:var(--acc)}header .sub{color:var(--dim);font-size:12px}
+main{max-width:1080px;margin:0 auto;padding:16px 14px 60px}
+details{background:var(--panel);border:1px solid var(--line);border-radius:10px;margin:0 0 12px;overflow:hidden}
+summary{cursor:pointer;padding:10px 14px;font-weight:700;letter-spacing:.04em;list-style:none;display:flex;gap:8px;align-items:center}
+summary::-webkit-details-marker{display:none}summary::before{content:"▸";color:var(--acc)}details[open] summary::before{content:"▾"}
+summary .tag{margin-left:auto;font-weight:400;font-size:11px;color:var(--dim)}
+.body{padding:0 14px 14px;border-top:1px solid var(--line)}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+input,select,textarea{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:7px;padding:8px 10px;font-family:var(--mono);font-size:12.5px}
+input:focus,select:focus,textarea:focus{outline:1px solid var(--acc);border-color:var(--acc)}
+input[type=text],input[type=password],input[type=email],input[type=url],input[type=number]{min-width:0}
+button{background:#1d2740;border:1px solid #31405f;color:var(--txt);border-radius:7px;padding:8px 12px;font-family:var(--mono);font-size:12.5px;cursor:pointer}
+button:hover{border-color:var(--acc);color:#fff}button.primary{background:#0e3a4d;border-color:var(--acc);color:#e0f7ff}button.danger{border-color:#5f2b2b;color:#fecaca}button.ghost{background:transparent}
+textarea{width:100%;min-height:90px;resize:vertical}label{color:var(--dim);font-size:11.5px;display:flex;flex-direction:column;gap:4px}
+label>span{letter-spacing:.03em}.grow{flex:1;min-width:160px}.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;border:1px solid var(--line);color:var(--dim)}
+.pill.ok{color:var(--grn);border-color:#1d4d2e}.pill.err{color:var(--red);border-color:#5f2b2b}.pill.warn{color:var(--amb);border-color:#5a4413}
+.hint{color:var(--dim);font-size:11.5px}.warnbox{border:1px solid #5a4413;background:#221a08;color:#fde68a;border-radius:7px;padding:8px 10px;font-size:12px;margin-top:10px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:760px){.grid2{grid-template-columns:1fr}}
+#authbar{position:sticky;top:53px;z-index:4;background:#0d1119e8;backdrop-filter:blur(4px);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px}
+#console{background:#070a10;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+#console .chead{display:flex;gap:8px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line)}
+#entries{display:flex;flex-direction:column;gap:8px;padding:12px;max-height:560px;overflow:auto}
+.entry{border:1px solid var(--line);border-radius:8px;background:var(--panel2);overflow:hidden}
+.entry .meta{display:flex;gap:8px;align-items:center;padding:7px 10px;border-bottom:1px solid var(--line);font-size:12px;flex-wrap:wrap}
+.st{font-weight:700;padding:0 7px;border-radius:6px}.s2{color:var(--grn)}.s4{color:var(--amb)}.s5{color:var(--red)}.s0{color:var(--dim)}
+.entry pre{margin:0;padding:10px;overflow:auto;max-height:300px;font-size:12px;white-space:pre-wrap;word-break:break-word}
+.entry .rid{color:var(--dim);font-size:11px}.copybtn{margin-left:auto;font-size:11px;padding:4px 8px}
+code.k{color:var(--acc)}
+</style>
+</head>
+<body>
+<header>
+<h1><b>RUNNIX</b> / demo console</h1>
+<span class="sub">instrument, not marketing — all calls same-origin via <code class="k">fetch()</code> + relative paths</span>
+<span class="pill" id="basePill" title="Base URL">origin: …</span>
+</header>
+<main>
+
+<div id="authbar">
+<div class="row" style="margin-top:0">
+<label class="grow"><span>Authorization Bearer token (shared)</span><input id="token" type="text" placeholder="(empty — log in below)" autocomplete="off" spellcheck="false"></label>
+<label style="min-width:220px;flex:1"><span>X-Tenant-ID (shared)</span><input id="tenant" type="text" placeholder="(empty — log in or create tenant)" autocomplete="off" spellcheck="false"></label>
+</div>
+<div class="row"><span class="pill" id="tokState">no token</span><span class="pill" id="tenState">no tenant</span>
+<span class="hint">Every tenant-route call sends both headers. Reads 404 = wrong tenant. 401 = bad/missing token.</span></div>
+</div>
+
+<details open>
+<summary>1 · Connection <span class="tag">GET /healthz · /readyz · /languages</span></summary>
+<div class="body">
+<div class="row">
+<button data-conn="GET /healthz">GET /healthz</button>
+<button data-conn="GET /readyz">GET /readyz</button>
+<button data-conn="GET /languages">GET /languages</button>
+<span class="hint">Base = <code class="k" id="baseUrl">location.origin</code> · each response echoes <code class="k">X-Request-ID</code> into the console.</span>
+</div>
+</div>
+</details>
+
+<details open>
+<summary>2 · Auth <span class="tag">POST /auth/* · GET /users/me</span></summary>
+<div class="body">
+<div class="grid2">
+<div>
+<div class="row"><b>Register</b><span class="hint">→ 201 + token + first tenant auto-saved</span></div>
+<div class="row"><label class="grow"><span>username</span><input id="r_user" type="text" value="demo"></label>
+<label class="grow"><span>email</span><input id="r_email" type="email" value="demo@example.com"></label></div>
+<div class="row"><label class="grow"><span>password</span><input id="r_pass" type="password" value="password123"></label>
+<button class="primary" id="btnRegister">POST /auth/register</button></div>
+</div>
+<div>
+<div class="row"><b>Login</b><span class="hint">→ username or email + password</span></div>
+<div class="row"><label class="grow"><span>username or email</span><input id="l_user" type="text" value="demo"></label>
+<label class="grow"><span>password</span><input id="l_pass" type="password" value="password123"></label></div>
+<div class="row"><button class="primary" id="btnLogin">POST /auth/login</button>
+<button id="btnMe">GET /users/me</button>
+<button class="danger" id="btnLogout">POST /auth/logout</button></div>
+</div>
+</div>
+<div class="row"><span class="hint">Stored: <code class="k" id="tokShow">—</code> · tenant <code class="k" id="tenShow">—</code></span></div>
+</div>
+</details>
+
+<details open>
+<summary>3 · Executions <span class="tag">POST · GET · list — 202 → poll to terminal</span></summary>
+<div class="body">
+<div class="row">
+<label><span>language</span><select id="ex_lang"><option>python</option></select></label>
+<label><span>timeout_s (1–60, default 2)</span><input id="ex_timeout" type="number" min="1" max="60" value="2" style="width:90px"></label>
+<label class="grow"><span>stdin (optional)</span><input id="ex_stdin" type="text" placeholder=""></label>
+</div>
+<div class="row"><label class="grow"><span>webhook_url (optional)</span><input id="ex_hook" type="url" placeholder="https://… (optional)"></label></div>
+<div class="row"><label class="grow"><span>source</span><textarea id="ex_src">print(40+2)</textarea></label></div>
+<div class="row">
+<button class="primary" id="btnRun">POST /executions → 202</button>
+<button id="btnPoll">GET /executions/{id} (poll)</button>
+<label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="autopoll" checked> auto-poll 2s to terminal</label>
+<button id="btnList">GET /executions?limit=</button>
+<input id="list_limit" type="number" min="1" max="100" value="10" style="width:70px">
+</div>
+<div class="row"><span class="hint">Over quota → <code class="k">429 + Retry-After</code>. Terminal = anything but queued/running/pending.</span></div>
+</div>
+</details>
+
+<details>
+<summary>4 · Tenants <span class="tag">POST /tenants · GET /tenants/{id}</span></summary>
+<div class="body">
+<div class="row">
+<button class="primary" id="btnTenantCreate">POST /tenants {} → owner</button>
+<button id="btnTenantGet">GET /tenants/{id}</button>
+<label class="grow"><span>tenant id (defaults to shared bar)</span><input id="tenant_id2" type="text" placeholder="uses X-Tenant-ID if empty"></label>
+</div>
+<div class="row"><span class="hint">Path id must equal <code class="k">X-Tenant-ID</code> on reads, otherwise expect 403/404.</span></div>
+</div>
+</details>
+
+<details>
+<summary>5 · API keys <span class="tag">mint shows secret ONCE</span></summary>
+<div class="body">
+<div class="warnbox">Mint returns <code>{id, name, key}</code> — the full secret is shown <b>once</b>. Copy it now; list only returns metadata.</div>
+<div class="row">
+<label class="grow"><span>key name</span><input id="key_name" type="text" value="demo-key"></label>
+<button class="primary" id="btnKeyMint">POST /tenants/{id}/api-keys</button>
+<button id="btnKeyList">GET /tenants/{id}/api-keys</button>
+</div>
+<div class="row">
+<label class="grow"><span>key id (for revoke)</span><input id="key_id" type="text" placeholder="key id from mint/list"></label>
+<button class="danger" id="btnKeyRevoke">DELETE …/{keyId} → revoked</button>
+</div>
+</div>
+</details>
+
+<div id="console">
+<div class="chead"><b>Console</b><span class="hint">newest first · METHOD path → status + JSON</span>
+<button class="ghost" id="btnClear" style="margin-left:auto">clear</button></div>
+<div id="entries"></div>
+</div>
+
+</main>
+<script>
+(function(){
+"use strict";
+var FALLBACK_LANGS=["python","javascript","go","java","ruby","rust","cpp"];
+var TERMINAL_OFF=["queued","running","pending","accepted"];
+var $=function(id){return document.getElementById(id)};
+var entries=$("entries"), pollTimer=null, lastExecId=null;
+$("baseUrl").textContent=location.origin;
+$("basePill").textContent="origin: "+location.origin;
+
+function trunc(t){return t&&t.length>18?t.slice(0,12)+"…"+t.slice(-4):t||"—"}
+function refreshBar(){
+var t=$("token").value.trim(), n=$("tenant").value.trim();
+$("tokState").textContent=t?"token ✓":"no token";
+$("tokState").className="pill "+(t?"ok":"");
+$("tenState").textContent=n?"tenant ✓":"no tenant";
+$("tenState").className="pill "+(n?"ok":"");
+$("tokShow").textContent=trunc(t);$("tenShow").textContent=n||"—";
+}
+["token","tenant"].forEach(function(id){$(id).addEventListener("input",refreshBar)});
+refreshBar();
+
+function log(method,path,status,body,rid,extra){
+var d=document.createElement("div");d.className="entry";
+var cls=status===0?"s0":status<300?"s2":status<500?"s4":"s5";
+var txt="";try{txt=JSON.stringify(body,null,2)}catch(e){txt=String(body)}
+if(txt==null||txt==="")txt="(empty body)";
+var hdr=method+" "+path+' <span class="st '+cls+'">'+status+"</span>";
+if(extra)hdr+=' <span class="pill warn">'+extra+"</span>";
+d.innerHTML='<div class="meta"><span>'+hdr+'</span><button class="copybtn">copy</button></div>'
++'<div class="meta"><span class="rid">x-request-id: '+(rid||"—")+"</span></div>"
++"<pre></pre>";
+d.querySelector("pre").textContent=txt;
+d.querySelector(".copybtn").onclick=function(){var t=method+" "+path+" -> "+status+"\n"+txt;
+if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(function(){})}else{var ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand("copy")}catch(e){}ta.remove()}};
+entries.prepend(d);
+while(entries.children.length>60)entries.lastChild.remove();
+}
+$("btnClear").onclick=function(){entries.innerHTML=""};
+
+function needToken(){var t=$("token").value.trim();if(!t){log("—","auth","0",{hint:"empty token — register or log in first (section 2)"},"—","log in first");return null}return t}
+function tenantId(override){return (override||$("tenant").value||"").trim()}
+
+async function call(method,path,opts){
+opts=opts||{};
+var t=opts.auth?$("token").value.trim():null;
+var headers={"Content-Type":"application/json"};
+if(opts.auth&&t)headers["Authorization"]="Bearer "+t;
+if(opts.tenant)headers["X-Tenant-ID"]=opts.tenant;
+var init={method:method,headers:headers};
+if(opts.body!==undefined)init.body=JSON.stringify(opts.body);
+var status=0,body=null,rid="—";
+try{
+var res=await fetch(path,init);
+status=res.status;rid=res.headers.get("x-request-id")||res.headers.get("X-Request-ID")||"—";
+if(status===429){var ra=res.headers.get("retry-after");if(ra)opts.note="retry-after "+ra+"s"}
+var ct=res.headers.get("content-type")||"";
+body=ct.indexOf("json")>=0?await res.json().catch(function(){return "(unparseable json)"}):await res.text();
+}catch(e){body={error:"network error",detail:String(e&&e.message||e)}}
+if(status===401)opts.note="401: bad/expired token — log in again";
+else if(status===403)opts.note="403: not a member / tenant mismatch";
+else if(status===404)opts.note="404: wrong id or cross-tenant (hidden)";
+else if(status===501)opts.note="501: auth unavailable (no database)";
+else if(status===502||status===503)opts.note=status+": backend not ready — try /readyz";
+log(method,path,status,body,rid,opts.note||null);
+return {status:status,body:body};
+}
+function saveAuth(body){
+if(!body||typeof body!=="object")return;
+if(body.accessToken){$("token").value=body.accessToken}
+if(body.refreshToken){try{sessionStorage.setItem("runnix_refresh",body.refreshToken)}catch(e){}}
+var ten=body.tenants&&body.tenants[0]&&(body.tenants[0].id||body.tenants[0].ID);
+if(ten){$("tenant").value=ten}
+refreshBar();
+}
+
+document.querySelectorAll("[data-conn]").forEach(function(b){
+b.onclick=function(){var p=b.getAttribute("data-conn").split(" ");call(p[0],p[1],{}).then(function(r){
+if(p[1]==="/languages"&&r.body&&Array.isArray(r.body.languages))fillLangs(r.body.languages)})};
+});
+function fillLangs(list){
+var s=$("ex_lang"),cur=s.value;s.innerHTML="";
+list.forEach(function(l){var o=document.createElement("option");o.value=l;o.textContent=l;s.appendChild(o)});
+if(list.indexOf(cur)>=0)s.value=cur;
+}
+fillLangs(FALLBACK_LANGS);
+fetch("/languages").then(function(r){return r.json()}).then(function(b){if(b&&Array.isArray(b.languages)&&b.languages.length)fillLangs(b.languages)}).catch(function(){});
+
+$("btnRegister").onclick=async function(){
+var r=await call("POST","/auth/register",{body:{username:$("r_user").value.trim(),email:$("r_email").value.trim(),password:$("r_pass").value}});
+if(r.status===201)saveAuth(r.body);
+};
+$("btnLogin").onclick=async function(){
+var r=await call("POST","/auth/login",{body:{username:$("l_user").value.trim(),password:$("l_pass").value}});
+if(r.status===200)saveAuth(r.body);
+};
+$("btnMe").onclick=function(){if(!needToken())return;call("GET","/users/me",{auth:true})};
+$("btnLogout").onclick=async function(){
+var t=$("token").value.trim();
+var rt=null;try{rt=sessionStorage.getItem("runnix_refresh")}catch(e){}
+var r=await call("POST","/auth/logout",{body:{refreshToken:rt||t}});
+if(r.status===200){$("token").value="";try{sessionStorage.removeItem("runnix_refresh")}catch(e){}refreshBar()}
+};
+// refresh token is stashed by saveAuth() on register/login/refresh.
+
+function execBody(){
+var b={language:$("ex_lang").value,source:$("ex_src").value};
+if($("ex_stdin").value)b.stdin=$("ex_stdin").value;
+var to=parseInt($("ex_timeout").value,10);if(to>=1&&to<=60)b.timeout_s=to;
+if($("ex_hook").value.trim())b.webhook_url=$("ex_hook").value.trim();
+var tid=tenantId();if(tid)b.tenant_id=tid;
+return b;
+}
+$("btnRun").onclick=async function(){
+if(!needToken())return;var tid=tenantId();
+if(!tid){log("POST","/executions","0",{hint:"empty X-Tenant-ID — set it in the shared bar"},"—","tenant missing");return}
+stopPoll();
+var r=await call("POST","/executions",{auth:true,tenant:tid,body:execBody()});
+if(r.status===202&&r.body&&(r.body.id||r.body.ID)){lastExecId=r.body.id||r.body.ID;
+if($("autopoll").checked)startPoll()}
+};
+$("btnPoll").onclick=function(){
+if(!needToken())return;if(!lastExecId){log("GET","/executions/{id}","0",{hint:"no execution yet — submit one first"},"—","nothing to poll");return}
+pollOnce();
+};
+function pollOnce(){
+var tid=tenantId();
+if(!tid){log("GET","/executions/"+lastExecId,"0",{hint:"empty X-Tenant-ID"},"—","tenant missing");return Promise.resolve()}
+return call("GET","/executions/"+encodeURIComponent(lastExecId),{auth:true,tenant:tid}).then(function(r){
+var st=r.body&&r.body.status?String(r.body.status).toLowerCase():"";
+if(TERMINAL_OFF.indexOf(st)<0)stopPoll();
+return r;
+});
+}
+function startPoll(){stopPoll();pollTimer=setInterval(pollOnce,2000)}
+function stopPoll(){if(pollTimer){clearInterval(pollTimer);pollTimer=null}}
+$("autopoll").addEventListener("change",function(){if(this.checked&&lastExecId)startPoll();else stopPoll()});
+$("btnList").onclick=function(){
+if(!needToken())return;var tid=tenantId();
+if(!tid){log("GET","/executions","0",{hint:"empty X-Tenant-ID"},"—","tenant missing");return}
+var l=parseInt($("list_limit").value,10)||10;
+call("GET","/executions?limit="+l+"&offset=0",{auth:true,tenant:tid});
+};
+$("btnTenantCreate").onclick=async function(){
+if(!needToken())return;
+var r=await call("POST","/tenants",{auth:true,tenant:$("tenant").value.trim()||undefined,body:{}});
+if(r.status===201&&r.body&&(r.body.id||r.body.tenant&&r.body.tenant.id)){$("tenant").value=r.body.id||r.body.tenant.id;refreshBar()}
+};
+$("btnTenantGet").onclick=function(){
+if(!needToken())return;var id=($("tenant_id2").value||$("tenant").value).trim();
+if(!id){log("GET","/tenants/{id}","0",{hint:"no tenant id — set shared X-Tenant-ID or type one here"},"—","tenant missing");return}
+call("GET","/tenants/"+encodeURIComponent(id),{auth:true,tenant:tenantId()});
+};
+$("btnKeyMint").onclick=async function(){
+if(!needToken())return;var id=tenantId();
+if(!id){log("POST","/tenants/{id}/api-keys","0",{hint:"empty X-Tenant-ID"},"—","tenant missing");return}
+var r=await call("POST","/tenants/"+encodeURIComponent(id)+"/api-keys",{auth:true,tenant:id,body:{name:$("key_name").value.trim()||"demo-key"}});
+if(r.body&&r.body.id)$("key_id").value=r.body.id;
+};
+$("btnKeyList").onclick=function(){
+if(!needToken())return;var id=tenantId();
+if(!id){log("GET","/tenants/{id}/api-keys","0",{hint:"empty X-Tenant-ID"},"—","tenant missing");return}
+call("GET","/tenants/"+encodeURIComponent(id)+"/api-keys",{auth:true,tenant:id});
+};
+$("btnKeyRevoke").onclick=function(){
+if(!needToken())return;var id=tenantId(),kid=$("key_id").value.trim();
+if(!id||!kid){log("DELETE","/tenants/{id}/api-keys/{keyId}","0",{hint:"need both tenant id and key id"},"—","missing ids");return}
+call("DELETE","/tenants/"+encodeURIComponent(id)+"/api-keys/"+encodeURIComponent(kid),{auth:true,tenant:id});
+};
+})();
+</script>
+</body>
+</html>

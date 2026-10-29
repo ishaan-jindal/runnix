@@ -45,6 +45,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	mux.HandleFunc("GET /healthz", handlers.Health)
 	mux.HandleFunc("GET /readyz", handlers.ReadyHandler(cfg.ReadyCheck))
+	mux.HandleFunc("GET /demo", handlers.Demo)
 
 	mux.HandleFunc("GET /languages", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"languages": executions.SupportedLanguages})

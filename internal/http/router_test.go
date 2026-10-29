@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -106,5 +107,21 @@ func TestRequestIDPropagated(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Header().Get("X-Request-ID") == "" {
 		t.Fatal("missing X-Request-ID")
+	}
+}
+
+func TestDemoConsole(t *testing.T) {
+	h := NewRouter(RouterConfig{})
+	req := httptest.NewRequest(http.MethodGet, "/demo", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /demo = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
+		t.Fatalf("Content-Type = %q, want text/html", ct)
+	}
+	if body := rec.Body.String(); len(body) == 0 || !strings.Contains(body, "/executions") {
+		t.Fatal("demo console missing executions UI")
 	}
 }

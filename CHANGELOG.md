@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Demo console: `GET /demo` serves a single self-contained page that exercises the whole API (health, auth, tenants, executions, API keys) same-origin via `fetch()`. No auth or database needed to load it.
+
 ## [0.2.0] - 2026-10-27
 
 ### Added
